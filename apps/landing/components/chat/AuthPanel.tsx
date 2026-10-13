@@ -14,6 +14,39 @@ import { isNativeApp } from "@/lib/shell";
 
 type Mode = "login" | "register";
 
+/** Выбор страны: флаг, название, код и допустимая длина национальной части номера. */
+type Region = { id: string; flag: string; name: string; code: string; min: number; max: number };
+
+const REGIONS: Region[] = [
+  { id: "ru", flag: "🇷🇺", name: "Россия", code: "7", min: 10, max: 10 },
+  { id: "kz", flag: "🇰🇿", name: "Казахстан", code: "7", min: 10, max: 10 },
+  { id: "by", flag: "🇧🇾", name: "Беларусь", code: "375", min: 9, max: 9 },
+  { id: "ua", flag: "🇺🇦", name: "Украина", code: "380", min: 9, max: 9 },
+  { id: "uz", flag: "🇺🇿", name: "Узбекистан", code: "998", min: 9, max: 9 },
+  { id: "kg", flag: "🇰🇬", name: "Киргизия", code: "996", min: 9, max: 9 },
+  { id: "tj", flag: "🇹🇯", name: "Таджикистан", code: "992", min: 9, max: 9 },
+  { id: "tm", flag: "🇹🇲", name: "Туркменистан", code: "993", min: 8, max: 8 },
+  { id: "am", flag: "🇦🇲", name: "Армения", code: "374", min: 8, max: 8 },
+  { id: "ge", flag: "🇬🇪", name: "Грузия", code: "995", min: 9, max: 9 },
+  { id: "az", flag: "🇦🇿", name: "Азербайджан", code: "994", min: 9, max: 9 },
+  { id: "lv", flag: "🇱🇻", name: "Латвия", code: "371", min: 8, max: 8 },
+  { id: "lt", flag: "🇱🇹", name: "Литва", code: "370", min: 8, max: 8 },
+  { id: "ee", flag: "🇪🇪", name: "Эстония", code: "372", min: 7, max: 8 },
+  { id: "tr", flag: "🇹🇷", name: "Турция", code: "90", min: 10, max: 10 },
+  { id: "de", flag: "🇩🇪", name: "Германия", code: "49", min: 10, max: 11 },
+  { id: "us", flag: "🇺🇸", name: "США", code: "1", min: 10, max: 10 },
+  { id: "gb", flag: "🇬🇧", name: "Великобритания", code: "44", min: 10, max: 10 },
+  { id: "il", flag: "🇮🇱", name: "Израиль", code: "972", min: 9, max: 9 },
+  { id: "cn", flag: "🇨🇳", name: "Китай", code: "86", min: 11, max: 11 },
+  { id: "in", flag: "🇮🇳", name: "Индия", code: "91", min: 10, max: 10 },
+  { id: "fr", flag: "🇫🇷", name: "Франция", code: "33", min: 9, max: 9 },
+  { id: "it", flag: "🇮🇹", name: "Италия", code: "39", min: 9, max: 10 },
+  { id: "es", flag: "🇪🇸", name: "Испания", code: "34", min: 9, max: 9 },
+  { id: "nova", flag: "🚀", name: "Nova", code: "888", min: 7, max: 7 },
+];
+
+const REGION_KEY = "nova.region";
+
 export function AuthPanel({
   onAuth,
 }: {
@@ -29,19 +62,51 @@ export function AuthPanel({
   const [mounted, setMounted] = useState(false);
   const [serverValue, setServerValue] = useState("");
   const [hint, setHint] = useState<string | null>(null);
+  const [regionId, setRegionId] = useState("ru");
 
   useEffect(() => {
     setMounted(true);
     setServerValue(getStoredApiBase() ?? API_BASE);
+    try {
+      const saved = window.localStorage.getItem(REGION_KEY);
+      if (saved && REGIONS.some((r) => r.id === saved)) setRegionId(saved);
+    } catch {
+      /* localStorage может быть недоступен */
+    }
   }, []);
+
+  const region = REGIONS.find((r) => r.id === regionId) ?? REGIONS[0];
+  const fullPhone = region.code + phone;
+  const phoneLen = phone.length;
+  const phoneOk = phoneLen >= region.min && phoneLen <= region.max;
+  const phoneError = phoneLen > 0 && !phoneOk
+    ? region.min === region.max
+      ? `Для ${region.name} (+${region.code}) нужно ровно ${region.max} цифр, у тебя ${phoneLen}`
+      : `Для ${region.name} (+${region.code}) нужно ${region.min}–${region.max} цифр, у тебя ${phoneLen}`
+    : null;
+
+  function changeRegion(nextId: string) {
+    setRegionId(nextId);
+    setPhone("");
+    try {
+      window.localStorage.setItem(REGION_KEY, nextId);
+    } catch {
+      /* localStorage может быть недоступен */
+    }
+  }
+
+  function changePhone(value: string) {
+    let digits = value.replace(/\D/g, "");
+    // Если номер ввели целиком вместе с кодом страны — оставляем национальную часть.
+    if (digits.length === region.code.length + region.max && digits.startsWith(region.code)) {
+      digits = digits.slice(region.code.length);
+    }
+    setPhone(digits.slice(0, region.max));
+  }
 
   function saveServer() {
     setStoredApiBase(serverValue.trim() || null);
     window.location.reload();
-  }
-
-  function normalizePhone(value: string): string {
-    return value.replace(/[^\d+]/g, "");
   }
 
   async function submit(event: FormEvent) {
@@ -54,11 +119,13 @@ export function AuthPanel({
         const result = await api.login(login.trim(), password);
         onAuth(result);
       } else {
-        const digitsOnly = phone.replace(/\D/g, "");
-        if (digitsOnly.length < 8) {
-          throw new Error("Введи номер телефона полностью (минимум 8 цифр)");
+        if (!phoneOk) {
+          throw new Error(phoneError ?? "Введи номер телефона полностью");
         }
-        const result = await api.register(digitsOnly, displayName.trim(), password);
+        if (fullPhone.length < 8 || fullPhone.length > 15) {
+          throw new Error("Номер должен содержать от 8 до 15 цифр");
+        }
+        const result = await api.register(fullPhone, displayName.trim(), password);
         if (result.user.isOwner) {
           setHint("Ты зарегистрировался как владелец Nova!");
         }
@@ -122,15 +189,49 @@ export function AuthPanel({
         {mode === "register" ? (
           <>
             <label className="field">
-              <span>Номер телефона</span>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(normalizePhone(e.target.value))}
-                placeholder="+7 900 000-00-00"
-                inputMode="tel"
-                autoComplete="tel"
+              <span>Страна и код</span>
+              <select
+                className="region-select"
+                value={regionId}
+                onChange={(e) => changeRegion(e.target.value)}
                 required
-              />
+              >
+                {REGIONS.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.flag} {r.name} +{r.code}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Номер телефона</span>
+              <div className="phone-row">
+                <span className="phone-dial">+{region.code}</span>
+                <input
+                  value={phone}
+                  onChange={(e) => changePhone(e.target.value)}
+                  placeholder={
+                    region.min === region.max
+                      ? `${region.max} цифр`
+                      : `${region.min}–${region.max} цифр`
+                  }
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  maxLength={region.code.length + region.max}
+                  required
+                />
+              </div>
+              {phoneLen > 0 ? (
+                <span className={`field-note ${phoneOk ? "ok" : "err"}`}>
+                  {phoneOk ? `Номер: +${fullPhone} ✓` : phoneError}
+                </span>
+              ) : (
+                <span className="field-note">
+                  {region.min === region.max
+                    ? `${region.max} цифр после +${region.code}`
+                    : `${region.min}–${region.max} цифр после +${region.code}`}
+                </span>
+              )}
             </label>
             <label className="field">
               <span>Отображаемое имя (необязательно)</span>

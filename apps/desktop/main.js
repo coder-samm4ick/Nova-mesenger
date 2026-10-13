@@ -12,7 +12,8 @@ const { app, BrowserWindow, Menu, shell } = require("electron");
 
 const { startStaticServer } = require("./static-server.js");
 
-const SERVER_URL = process.env.NOVA_SERVER_URL || "http://localhost:8081";
+const SERVER_URL = process.env.NOVA_SERVER_URL ||
+  (app.isPackaged ? "https://nova-mesenger.onrender.com" : "http://localhost:8081");
 const ICON_PATH = path.join(__dirname, "icon.png");
 
 let mainWindow = null;
