@@ -1,0 +1,23 @@
+{
+  "name": "@nova/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Мобильное приложение Nova (Android, Capacitor)",
+  "scripts": {
+    "prepare:www": "node scripts/prepare-www.mjs",
+    "add:android": "npm run prepare:www && cap add android",
+    "sync": "npm run prepare:www && cap sync android",
+    "signing:config": "node scripts/configure-android-signing.mjs",
+    "build:debug": "npm run sync && node scripts/build-apk.mjs debug",
+    "build:release": "npm run sync && node scripts/build-apk.mjs release",
+    "keystore": "node scripts/make-keystore.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/core": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3"
+  }
+}

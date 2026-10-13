@@ -1,0 +1,14 @@
+# сгенерированные ассеты веб-клиента
+www/
+
+# сгенерированные ключи подписи
+certs/
+android/keystore.properties
+
+# сборка Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Фирменные цвета Nova. -->
+    <color name="colorPrimary">#2FA8FF</color>
+    <color name="colorPrimaryDark">#05070F</color>
+    <color name="colorAccent">#7C5CFF</color>
+
+    <!-- Тёмный фон оболочки приложения. -->
+    <color name="novaBackdrop">#05070F</color>
+    <color name="novaSurface">#0B0F1A</color>
+</resources>

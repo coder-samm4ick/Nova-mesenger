@@ -1,0 +1,15 @@
+# Контекст сборки Docker (корень репозитория) — исключаем всё лишнее.
+**/node_modules
+**/dist
+**/.next
+**/out
+**/tsconfig.tsbuildinfo
+apps/desktop/renderer
+apps/desktop/dist
+apps/desktop/certs
+apps/mobile
+apps/landing/public/downloads
+apps/server/data
+.git
+.gitignore
+**/*.log

@@ -1,0 +1,51 @@
+{
+  "name": "@nova/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nova — десктоп-клиент для Windows, macOS и Linux",
+  "author": "Nova",
+  "main": "main.js",
+  "scripts": {
+    "prepare-renderer": "node scripts/prepare-renderer.mjs",
+    "make-cert": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-cert.ps1",
+    "start": "npm run prepare-renderer && electron .",
+    "pack": "npm run prepare-renderer && electron-builder --win --dir",
+    "dist": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "chat.nova.desktop",
+    "productName": "Nova",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "static-server.js",
+      "renderer/**/*",
+      "icon.png",
+      "package.json"
+    ],
+    "win": {
+      "icon": "icon.png",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Nova",
+      "artifactName": "nova-setup-x64.${ext}"
+    },
+    "portable": {
+      "artifactName": "nova-portable.exe"
+    }
+  }
+}

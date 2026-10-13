@@ -1,0 +1,24 @@
+# Render Blueprint — бэкенд Nova (REST + WebSocket).
+# Подключи репозиторий в Render → «New › Blueprint» — сервис создастся автоматически.
+# Документация: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: nova-server
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./apps/server/Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      # Номер владельца (+888 888 8888). Регистрация на него даёт роль владельца.
+      - key: NOVA_OWNER_PHONE
+        value: 8888888888
+    # Постоянное хранилище (данные пользователей) доступно на платных тарифах.
+    # Раскомментируй, чтобы переписка не терялась при перезапуске:
+    # disk:
+    #   name: nova-data
+    #   mountPath: /app/data
+    #   sizeGB: 1

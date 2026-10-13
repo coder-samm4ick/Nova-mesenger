@@ -1,0 +1,26 @@
+{
+  "name": "nova",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nova — кроссплатформенный мессенджер нового поколения",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:landing": "npm run dev --workspace @nova/landing",
+    "build:landing": "npm run build --workspace @nova/landing",
+    "build:pages": "npm run build:pages --workspace @nova/landing",
+    "dev:server": "npm run dev --workspace @nova/server",
+    "dev:desktop": "npm run start --workspace @nova/desktop",
+    "pack:desktop": "npm run pack --workspace @nova/desktop",
+    "make-cert": "npm run make-cert --workspace @nova/desktop",
+    "build:desktop": "npm run dist --workspace @nova/desktop && npm run build:landing",
+    "add:android": "npm run add:android --workspace @nova/mobile",
+    "sync:mobile": "npm run sync --workspace @nova/mobile",
+    "build:apk": "npm run build:release --workspace @nova/mobile"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

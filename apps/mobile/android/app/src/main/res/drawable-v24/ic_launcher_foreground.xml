@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Фирменный знак Nova для адаптивной иконки (слой переднего плана). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportHeight="108"
+    android:viewportWidth="108">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,28 L76.5,41 L76.5,67 L54,80 L31.5,67 L31.5,41 Z"
+        android:strokeColor="#04121f"
+        android:strokeLineJoin="round"
+        android:strokeWidth="4.2" />
+    <path
+        android:fillColor="#D904121F"
+        android:pathData="M54,40 L66.1,47 L66.1,61 L54,68 L41.9,61 L41.9,47 Z" />
+</vector>
