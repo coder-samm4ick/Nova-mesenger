@@ -54,10 +54,10 @@ const USERNAME_RE = /^[a-z0-9_-]{3,32}$/;
 const PHONE_DIGITS_RE = /^\d{8,15}$/;
 
 /**
- * Номер телефона владельца (+888 888 8888): регистрация на этот номер
+ * Номер телефона владельца (+888 888 8887): регистрация на этот номер
  * делает тебя владельцем. Переопределяется env NOVA_OWNER_PHONE.
  */
-const OWNER_PHONE = (process.env.NOVA_OWNER_PHONE ?? "8888888888").replace(/\D/g, "");
+const OWNER_PHONE = (process.env.NOVA_OWNER_PHONE ?? "8888888887").replace(/\D/g, "");
 const PREMIUM_PRICE = Number(process.env.NOVA_PREMIUM_PRICE ?? 199);
 const PREMIUM_DAYS = Number(process.env.NOVA_PREMIUM_DAYS ?? 30);
 
