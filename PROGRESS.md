@@ -1,5 +1,25 @@
 # Nova Landing — deployment progress
 
+## Status: LIVE + OWNER + APPS REBUILT (2026-10-14)
+
+### Что сделано 2026-10-13/14
+- **Web-версия полностью работает** (гидрация через `TURBOPACK_CHUNK_BASE_PATH="/Nova-mesenger/_next/"` в `<head>`), E2E через живой UI: регистрация → чат → сообщения → WS.
+- **Скачивания** ведут на GitHub Releases v1.0.0 (env `NEXT_PUBLIC_DOWNLOADS_BASE`), склейка basePath вылечена, hrefs проверены 200.
+- **Владелец**: `OWNER_PHONE=8882229922` в коде (main `da322c9`), бэкенд пересобран на Render из ветки `main` (ветка сервиса переключена, авто-деплой), аккаунт **+888 222 9922 / Dimasik1982** (Dimasik) isOwner=True.
+- **Регистрация**: выбор региона (25 стран, вкл. 🚀 Nova +888) + валидация длины номера (`AuthPanel.tsx`), задеплоено (gh-pages `46c49ad`), проверено E2E вживую.
+- **API base** зашит в сборку: `NEXT_PUBLIC_NOVA_API=https://nova-mesenger.onrender.com` (без него сайт собирался на localhost:8081 — фикс в `46c49ad`).
+- **Приложения пересобраны под новый сервер**:
+  - десктоп: `main.js` default = `app.isPackaged ? "https://nova-mesenger.onrender.com" : localhost` (main `ccf5e07`), exe пересобраны, URL проверен в app.asar;
+  - android: `NOVA_API_URL=https://nova-mesenger.onrender.com` зашит в `window.__NOVA_API__`, APK пересобран подписан (certs/nova-android.keystore);
+  - оба заливаются в Release v1.0.0 (заменяют старые ассеты с 192.168.1.248/localhost).
+- **Сборка статики**: `next build` НЕ эмитит `out/` — синтезируется из `.next/server/app/*.html` + `.next/static` + `public` (см. Temp scripts assemble/rewrite/dedup), затем рерайт путей под `/Nova-mesenger/`.
+
+### Ветки
+- `main` (default) = исходники, HEAD `ccf5e07`.
+- `gh-pages` = сайт, HEAD `46c49ad`, Pages source pinned.
+
+---
+
 ## Status: FIXED (2026-10-13) — root cause found and deployed
 
 ### ROOT CAUSE (confirmed)
