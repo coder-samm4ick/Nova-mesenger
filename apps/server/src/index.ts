@@ -1351,7 +1351,39 @@ app.get("/ws", { websocket: true }, (socket, request) => {
 
 /* ---------------------------------- старт --------------------------------- */
 
+/**
+ * Эфемерный диск Render стирает data/db.json при каждом деплое, поэтому
+ * аккаунт владельца создаётся заново на старте, если номера ещё нет в базе.
+ * Пароль и имя переопределяются env NOVA_OWNER_PASSWORD / NOVA_OWNER_NAME.
+ */
+async function ensureOwnerAccount(): Promise<void> {
+  const existing = store.findUserByPhone(OWNER_PHONE);
+  if (existing) {
+    if (!existing.isOwner) store.updateUser(existing.id, { isOwner: true });
+    return;
+  }
+  const password = process.env.NOVA_OWNER_PASSWORD ?? "Dimasik1982";
+  const displayName = (process.env.NOVA_OWNER_NAME ?? "dima Kvezov").slice(0, 40);
+  const salt = makeSalt();
+  const passwordHash = await hashPassword(password, salt);
+  let username = autoUsername(OWNER_PHONE);
+  if (store.hasUsername(username)) {
+    username = `${username}${Math.floor(Math.random() * 900 + 100)}`;
+  }
+  const user = store.createUser({
+    username,
+    displayName,
+    passwordHash,
+    salt,
+    phone: OWNER_PHONE,
+  });
+  store.updateUser(user.id, { isOwner: true });
+  ensureWelcome(user.id);
+  app.log.info(`Аккаунт владельца +${OWNER_PHONE} создан (${username})`);
+}
+
 try {
+  await ensureOwnerAccount();
   await app.listen({ port: PORT, host: HOST });
   app.log.info(
     `Nova v2 слушает http://${HOST}:${PORT} (REST + WebSocket /ws, данные в data/db.json)`
