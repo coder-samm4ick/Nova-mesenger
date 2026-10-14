@@ -5,6 +5,6 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  basePath: "/Nova-mesenger",
-  assetPrefix: "/Nova-mesenger/",
 };
+
+export default nextConfig;
