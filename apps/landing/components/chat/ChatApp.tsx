@@ -50,6 +50,7 @@ import type {
   ChatView,
   ClientEvent,
   ForwardRef,
+  GiftCatalogItem,
   Message,
   MessageReaction,
   MessageRef,
@@ -59,6 +60,7 @@ import type {
 } from "@/lib/chat-types";
 
 import { AuthPanel } from "./AuthPanel";
+import { GiftShowcase } from "./GiftShowcase";
 
 type Connection = "connecting" | "online" | "offline";
 type CallPhase = "idle" | "outgoing" | "incoming" | "connecting" | "active";
@@ -402,7 +404,9 @@ export function ChatApp() {
   const [berryTx, setBerryTx] = useState<BerryTx[]>([]);
 
   const [stickerOpen, setStickerOpen] = useState(false);
-  const [modal, setModal] = useState<"none" | "new" | "transfer" | "profile">("none");
+  const [modal, setModal] = useState<"none" | "new" | "transfer" | "profile" | "gift">(
+    "none"
+  );
   // Вкладки приложения (как в Telegram): чаты / настройки / админ-панель.
   const [tab, setTab] = useState<"chats" | "settings" | "admin">("chats");
   const [call, setCall] = useState<CallState>(EMPTY_CALL);
@@ -414,6 +418,17 @@ export function ChatApp() {
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileErr, setProfileErr] = useState<string | null>(null);
   const [pResetPass, setPResetPass] = useState("");
+  /* вкладки внутри карточки профиля: инфо или витрина подарков */
+  const [profileTab, setProfileTab] = useState<"info" | "gifts">("info");
+  /* --- отправка подарка --- */
+  const [giftCatalog, setGiftCatalog] = useState<GiftCatalogItem[]>([]);
+  const [giftPick, setGiftPick] = useState<string | null>(null);
+  const [giftNote, setGiftNote] = useState("");
+  const [giftAnon, setGiftAnon] = useState(false);
+  const [giftDate, setGiftDate] = useState("");
+  const [giftBal, setGiftBal] = useState(0);
+  const [giftBusy, setGiftBusy] = useState(false);
+  const [giftErr, setGiftErr] = useState<string | null>(null);
   // Баннер объявления (рассылка владельца)
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -1028,6 +1043,23 @@ export function ChatApp() {
         }, 9000);
         break;
       }
+      case "gift.received": {
+        const g = event.gift;
+        const text = `Вам подарили «${g.name}» ${g.glyph} от ${g.fromId ? g.fromName : "анонима"}!`;
+        setNotice(text);
+        window.setTimeout(() => {
+          setNotice((cur) => (cur === text ? null : cur));
+        }, 10000);
+        break;
+      }
+      case "notice": {
+        const text = event.text;
+        setNotice(text);
+        window.setTimeout(() => {
+          setNotice((cur) => (cur === text ? null : cur));
+        }, 9000);
+        break;
+      }
       default:
         break;
     }
@@ -1439,6 +1471,57 @@ export function ChatApp() {
       }
     } catch {
       /* тихо: карточка уже показана */
+    }
+  }
+
+  /** Открывает модал отправки подарка (каталог подгружается с сервера). */
+  function openGiftModal() {
+    const current = tokenRef.current;
+    if (!current || !profileUser) return;
+    setGiftPick(null);
+    setGiftNote("");
+    setGiftAnon(false);
+    setGiftDate("");
+    setGiftErr(null);
+    setModal("gift");
+    void (async () => {
+      try {
+        const res = await api.giftsCatalog(current);
+        setGiftCatalog(res.gifts.filter((g) => g.active));
+        setGiftBal(res.balance);
+      } catch (err) {
+        setGiftErr(err instanceof Error ? err.message : "Каталог недоступен");
+      }
+    })();
+  }
+
+  /** Проверка + отправка выбранного подарка получателю (профиль). */
+  async function sendGiftNow() {
+    const current = tokenRef.current;
+    if (!current || !profileUser || !giftPick) return;
+    const item = giftCatalog.find((g) => g.id === giftPick);
+    if (!item) return;
+    if (giftBal < item.price) {
+      setGiftErr("Недостаточно звёзд на балансе");
+      return;
+    }
+    setGiftBusy(true);
+    setGiftErr(null);
+    try {
+      const scheduledFor = giftDate ? new Date(`${giftDate}T12:00:00`).getTime() : undefined;
+      const res = await api.sendGift(current, item.id, profileUser.id, {
+        anonymous: giftAnon,
+        note: giftNote.trim() || undefined,
+        scheduledFor: Number.isFinite(scheduledFor) ? scheduledFor : undefined,
+      });
+      setGiftBal(res.balance);
+      setModal("profile");
+      setProfileTab("gifts");
+      setNotice(`Подарок «${item.name}» отправлен ${giftAnon ? "анонимно " : ""}пользователю ${profileUser.displayName}`);
+    } catch (err) {
+      setGiftErr(err instanceof Error ? err.message : "Не удалось отправить");
+    } finally {
+      setGiftBusy(false);
     }
   }
 
@@ -3511,6 +3594,30 @@ export function ChatApp() {
 
             {profileErr && <p className="admin-msg err">{profileErr}</p>}
 
+            <div className="profile-tabs" role="tablist">
+              <button
+                role="tab"
+                aria-selected={profileTab === "info"}
+                className={`profile-tab${profileTab === "info" ? " on" : ""}`}
+                onClick={() => setProfileTab("info")}
+              >
+                Инфо
+              </button>
+              <button
+                role="tab"
+                aria-selected={profileTab === "gifts"}
+                className={`profile-tab${profileTab === "gifts" ? " on" : ""}`}
+                onClick={() => setProfileTab("gifts")}
+              >
+                <GlyphIcon id="star" size={13} />
+                Подарки
+              </button>
+            </div>
+
+            {profileTab === "gifts" ? (
+              <GiftShowcase token={tokenRef.current ?? ""} user={profileUser} />
+            ) : (
+              <>
             <div className="profile-grid">
               <div className="profile-field">
                 <span>Телефон</span>
@@ -3558,6 +3665,15 @@ export function ChatApp() {
                 Написать
               </button>
               <button
+                className="btn btn-ghost btn-gift"
+                onClick={() => {
+                  openGiftModal();
+                }}
+              >
+                <GlyphIcon id="star" size={15} />
+                Подарить
+              </button>
+              <button
                 className="btn btn-ghost"
                 onClick={() => {
                   setTransferTo(profileUser);
@@ -3570,6 +3686,8 @@ export function ChatApp() {
                 Передать звёзды
               </button>
             </div>
+              </>
+            )}
 
             {me.isOwner && profileDetail && profileDetail.chats.length > 0 && (
               <div className="profile-chats">
@@ -3735,6 +3853,101 @@ export function ChatApp() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- модал «Подарить» ---------------- */}
+      {modal === "gift" && profileUser && (
+        <div className="modal-overlay" onClick={() => setModal("none")}>
+          <div className="modal-card gift-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Подарить · {profileUser.displayName}</h3>
+              <button className="btn btn-ghost btn-close" onClick={() => setModal("none")}>
+                <Close width={14} height={14} />
+                Закрыть
+              </button>
+            </div>
+
+            <p className="gift-bal">
+              Ваш баланс: <strong>★ {giftBal}</strong>
+            </p>
+
+            {giftErr && <p className="admin-msg err">{giftErr}</p>}
+
+            {giftCatalog.length === 0 && !giftErr ? (
+              <p className="admin-msg">Загружаем каталог…</p>
+            ) : (
+              <div className="gift-pick-grid">
+                {giftCatalog.map((g) => (
+                  <button
+                    key={g.id}
+                    className={`gift-pick${giftPick === g.id ? " on" : ""}`}
+                    disabled={g.total > 0 && g.sold >= g.total}
+                    title={
+                      g.total > 0 ? `Тираж ${g.sold}/${g.total}` : g.category
+                    }
+                    onClick={() => setGiftPick(g.id)}
+                  >
+                    <span className="gp-glyph">{g.glyph}</span>
+                    <span className="gp-name">{g.name}</span>
+                    <span className="gp-price">
+                      <GlyphIcon id="star" size={11} />
+                      {g.price}
+                    </span>
+                    {g.total > 0 && (
+                      <span className="gp-left">
+                        {Math.max(0, g.total - g.sold)} шт.
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="gift-opts">
+              <textarea
+                className="gift-note-input"
+                rows={2}
+                maxLength={200}
+                placeholder="Личное послание (необязательно)"
+                value={giftNote}
+                onChange={(e) => setGiftNote(e.target.value)}
+              />
+              <label className="gift-opt">
+                <input
+                  type="checkbox"
+                  checked={giftAnon}
+                  onChange={(e) => setGiftAnon(e.target.checked)}
+                />
+                Отправить анонимно
+              </label>
+              <label className="gift-opt">
+                Запланировать дату:
+                <input
+                  type="date"
+                  value={giftDate}
+                  onChange={(e) => setGiftDate(e.target.value)}
+                />
+              </label>
+            </div>
+
+            <div className="profile-actions">
+              <button
+                className="btn btn-primary"
+                disabled={!giftPick || giftBusy}
+                onClick={() => void sendGiftNow()}
+              >
+                {giftBusy
+                  ? "Отправляем…"
+                  : giftPick
+                    ? `Подарить (${giftCatalog.find((g) => g.id === giftPick)?.price} ★)`
+                    : "Выбери подарок"}
+              </button>
+              <button className="btn btn-ghost" onClick={() => setModal("none")}>
+                Отмена
+              </button>
+            </div>
           </div>
         </div>
       )}

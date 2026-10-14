@@ -11,16 +11,23 @@ import { fileURLToPath } from "node:url";
 import { newId } from "./auth.js";
 import type {
   AdminChatView,
+  AdminLog,
   BerryTx,
   Chat,
   ChatView,
+  DayStat,
   ForwardRef,
+  GiftCatalogItem,
   Message,
   MessageReaction,
   MessageRef,
   PhotoAttachment,
+  PromoCode,
+  Report,
+  ServerSettings,
   StoredUser,
   User,
+  UserGift,
 } from "./types.js";
 
 const AVATAR_COLORS = [
@@ -61,6 +68,22 @@ const readCursors = new Map<string, Map<string, string>>();
 const uploadedFiles = new Map<string, PhotoAttachment>();
 const berryTransactions: BerryTx[] = [];
 
+/* --- новые коллекции: подарки, жалобы, логи, промо, настройки --- */
+let giftCatalog: GiftCatalogItem[] = [];
+let userGifts: UserGift[] = [];
+let giftSerial = 0;
+let reports: Report[] = [];
+let adminLogs: AdminLog[] = [];
+let promoCodes: PromoCode[] = [];
+const settings: ServerSettings = {
+  registrationOpen: true,
+  wordBlacklist: [],
+  linkWhitelist: [],
+  rateLimitPerMin: 30,
+  bannedIps: [],
+  features: {},
+};
+
 type DbSnapshot = {
   users: StoredUser[];
   chats: Chat[];
@@ -69,6 +92,13 @@ type DbSnapshot = {
   uploadedFiles?: PhotoAttachment[];
   berryTransactions?: BerryTx[];
   meta?: { maintenance?: boolean };
+  giftCatalog?: GiftCatalogItem[];
+  userGifts?: UserGift[];
+  giftSerial?: number;
+  reports?: Report[];
+  adminLogs?: AdminLog[];
+  promoCodes?: PromoCode[];
+  settings?: Partial<ServerSettings>;
 };
 
 /**
@@ -112,6 +142,20 @@ function save(): void {
       uploadedFiles: [...uploadedFiles.values()],
       berryTransactions,
       meta: { maintenance: meta.maintenance },
+      giftCatalog,
+      userGifts,
+      giftSerial,
+      reports,
+      adminLogs,
+      promoCodes,
+      settings: {
+        registrationOpen: settings.registrationOpen,
+        wordBlacklist: settings.wordBlacklist,
+        linkWhitelist: settings.linkWhitelist,
+        rateLimitPerMin: settings.rateLimitPerMin,
+        bannedIps: settings.bannedIps,
+        features: settings.features,
+      },
     };
     writeFileSync(file, JSON.stringify(snapshot, null, 2), "utf8");
   } catch (err) {
@@ -137,6 +181,13 @@ function normalizeUser(raw: Partial<StoredUser>): StoredUser | null {
     berries: typeof raw.berries === "number" ? Math.max(0, raw.berries) : 0,
     lastSeenAt: typeof raw.lastSeenAt === "number" ? raw.lastSeenAt : undefined,
     createdAt: raw.createdAt ?? Date.now(),
+    /* модерация */
+    mutedUntil: typeof raw.mutedUntil === "number" ? raw.mutedUntil : undefined,
+    shadowBanned: Boolean(raw.shadowBanned),
+    bannedReason: raw.bannedReason ?? undefined,
+    bannedUntil: typeof raw.bannedUntil === "number" ? raw.bannedUntil : undefined,
+    ip: raw.ip ?? undefined,
+    flags: raw.flags && typeof raw.flags === "object" ? raw.flags : undefined,
     passwordHash: raw.passwordHash ?? "",
     salt: raw.salt ?? "",
   };
@@ -250,6 +301,27 @@ function load(): void {
   }
   if (parsed?.meta && typeof parsed.meta.maintenance === "boolean") {
     meta.maintenance = parsed.meta.maintenance;
+  }
+  /* новые коллекции */
+  if (Array.isArray(parsed?.giftCatalog)) giftCatalog = parsed.giftCatalog;
+  if (Array.isArray(parsed?.userGifts)) userGifts = parsed.userGifts;
+  if (typeof parsed?.giftSerial === "number") giftSerial = parsed.giftSerial;
+  if (Array.isArray(parsed?.reports)) reports = parsed.reports;
+  if (Array.isArray(parsed?.adminLogs)) adminLogs = parsed.adminLogs;
+  if (Array.isArray(parsed?.promoCodes)) promoCodes = parsed.promoCodes;
+  if (parsed?.settings) {
+    if (typeof parsed.settings.registrationOpen === "boolean")
+      settings.registrationOpen = parsed.settings.registrationOpen;
+    if (Array.isArray(parsed.settings.wordBlacklist))
+      settings.wordBlacklist = parsed.settings.wordBlacklist;
+    if (Array.isArray(parsed.settings.linkWhitelist))
+      settings.linkWhitelist = parsed.settings.linkWhitelist;
+    if (typeof parsed.settings.rateLimitPerMin === "number")
+      settings.rateLimitPerMin = parsed.settings.rateLimitPerMin;
+    if (Array.isArray(parsed.settings.bannedIps))
+      settings.bannedIps = parsed.settings.bannedIps;
+    if (parsed.settings.features && typeof parsed.settings.features === "object")
+      settings.features = parsed.settings.features;
   }
 }
 
@@ -401,6 +473,12 @@ export function updateUser(
       | "isVerified"
       | "berries"
       | "lastSeenAt"
+      | "mutedUntil"
+      | "shadowBanned"
+      | "bannedReason"
+      | "bannedUntil"
+      | "ip"
+      | "flags"
     >
   >
 ): StoredUser | null {
@@ -1008,4 +1086,237 @@ export function getUpload(fileId: string): PhotoAttachment | null {
 export function ensureUploadsDir(): void {
   const dir = uploadsDir();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+}
+
+/* ================= СИСТЕМА ПОДАРКОВ ================= */
+
+/** Дефолтный каталог подарков (создаётся при первом старте). */
+function defaultGiftCatalog(): GiftCatalogItem[] {
+  const now = Date.now();
+  const mk = (
+    id: string, name: string, glyph: string, rarity: GiftCatalogItem["rarity"],
+    category: string, price: number, total: number
+  ): GiftCatalogItem => ({ id, name, glyph, rarity, category, price, total, sold: 0, active: true, createdAt: now });
+  return [
+    mk("duck", "Уточка", "🐤", "common", "sticker", 10, 0),
+    mk("rose", "Роза", "🌹", "common", "seasonal", 15, 0),
+    mk("cake", "Торт", "🎂", "common", "animated", 25, 0),
+    mk("bear", "Мишка", "🧸", "rare", "collectible", 60, 0),
+    mk("ring", "Кольцо", "💍", "rare", "collectible", 90, 0),
+    mk("rocket", "Ракета", "🚀", "epic", "animated", 150, 0),
+    mk("crown", "Корона", "👑", "epic", "collectible", 250, 0),
+    mk("trophy", "Кубок", "🏆", "legendary", "collectible", 500, 0),
+    mk("diamond", "Бриллиант", "💎", "legendary", "collectible", 800, 0),
+    mk("unicorn", "Единорог", "🦄", "limited", "seasonal", 1200, 1000),
+  ];
+}
+
+export function listGiftCatalog(): GiftCatalogItem[] {
+  if (giftCatalog.length === 0) {
+    giftCatalog = defaultGiftCatalog();
+    save();
+  }
+  return giftCatalog;
+}
+
+export function getGiftItem(id: string): GiftCatalogItem | null {
+  return giftCatalog.find((g) => g.id === id) ?? null;
+}
+
+export function updateGiftItem(id: string, patch: Partial<GiftCatalogItem>): GiftCatalogItem | null {
+  const idx = giftCatalog.findIndex((g) => g.id === id);
+  if (idx < 0) return null;
+  giftCatalog[idx] = { ...giftCatalog[idx], ...patch };
+  save();
+  return giftCatalog[idx];
+}
+
+export function addGiftItem(item: Omit<GiftCatalogItem, "createdAt" | "sold">): GiftCatalogItem {
+  const full: GiftCatalogItem = { ...item, sold: 0, createdAt: Date.now() };
+  giftCatalog.push(full);
+  save();
+  return full;
+}
+
+export function removeGiftItem(id: string): boolean {
+  const before = giftCatalog.length;
+  giftCatalog = giftCatalog.filter((g) => g.id !== id);
+  save();
+  return giftCatalog.length < before;
+}
+
+/** Создаёт подарок с серийным номером. */
+export function createGift(input: {
+  giftId: string;
+  toId: string;
+  fromId: string | null;
+  fromName: string;
+  note?: string;
+  scheduledFor?: number;
+}): UserGift | null {
+  const item = getGiftItem(input.giftId);
+  if (!item) return null;
+  giftSerial += 1;
+  const gift: UserGift = {
+    serial: giftSerial,
+    giftId: item.id,
+    name: item.name,
+    glyph: item.glyph,
+    rarity: item.rarity,
+    value: item.price,
+    toId: input.toId,
+    fromId: input.fromId,
+    fromName: input.fromName,
+    note: input.note,
+    scheduledFor: input.scheduledFor,
+    accepted: true,
+    createdAt: Date.now(),
+  };
+  userGifts.push(gift);
+  item.sold += 1;
+  save();
+  return gift;
+}
+
+export function giftsForUser(userId: string): UserGift[] {
+  return userGifts.filter((g) => g.toId === userId).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function allGifts(): UserGift[] {
+  return [...userGifts].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** Уровень коллекционера по сумме стоимости подарков. */
+export function collectorLevel(userId: string): { level: number; totalValue: number; nextIn: number } {
+  const total = giftsForUser(userId).reduce((s, g) => s + g.value, 0);
+  const level = Math.floor(Math.sqrt(total / 100)) + 1;
+  const cur = (level - 1) ** 2 * 100;
+  const next = level ** 2 * 100;
+  return { level, totalValue: total, nextIn: Math.max(0, next - total) };
+}
+
+/* ================= ЖАЛОБЫ / ЛОГИ / ПРОМО / НАСТРОЙКИ ================= */
+
+export function addReport(input: Omit<Report, "id" | "status" | "createdAt">): Report {
+  const report: Report = { ...input, id: newId(), status: "open", createdAt: Date.now() };
+  reports.push(report);
+  save();
+  return report;
+}
+
+export function listReports(status?: Report["status"]): Report[] {
+  const list = status ? reports.filter((r) => r.status === status) : reports;
+  return [...list].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function resolveReport(id: string, adminId: string, status: "resolved" | "dismissed"): Report | null {
+  const r = reports.find((x) => x.id === id);
+  if (!r) return null;
+  r.status = status;
+  r.resolvedBy = adminId;
+  r.resolvedAt = Date.now();
+  save();
+  return r;
+}
+
+export function logAdmin(input: Omit<AdminLog, "id" | "createdAt">): AdminLog {
+  const log: AdminLog = { ...input, id: newId(), createdAt: Date.now() };
+  adminLogs.push(log);
+  if (adminLogs.length > 2000) adminLogs = adminLogs.slice(-2000);
+  save();
+  return log;
+}
+
+export function listAdminLogs(limit = 200): AdminLog[] {
+  return [...adminLogs].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+}
+
+export function findPromo(code: string): PromoCode | null {
+  return promoCodes.find((p) => p.code === code.toLowerCase()) ?? null;
+}
+
+export function createPromo(input: Omit<PromoCode, "code" | "uses" | "createdAt"> & { code: string }): PromoCode {
+  const promo: PromoCode = { ...input, code: input.code.toLowerCase(), uses: 0, createdAt: Date.now() };
+  promoCodes.push(promo);
+  save();
+  return promo;
+}
+
+export function listPromos(): PromoCode[] {
+  return [...promoCodes].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function updatePromo(code: string, patch: Partial<PromoCode>): PromoCode | null {
+  const p = promoCodes.find((x) => x.code === code.toLowerCase());
+  if (!p) return null;
+  Object.assign(p, patch);
+  save();
+  return p;
+}
+
+export function removePromo(code: string): boolean {
+  const before = promoCodes.length;
+  promoCodes = promoCodes.filter((p) => p.code !== code.toLowerCase());
+  save();
+  return promoCodes.length < before;
+}
+
+export function serverSettings(): ServerSettings {
+  return { ...settings };
+}
+
+export function updateSettings(patch: Partial<ServerSettings>): ServerSettings {
+  if (typeof patch.registrationOpen === "boolean") settings.registrationOpen = patch.registrationOpen;
+  if (Array.isArray(patch.wordBlacklist)) settings.wordBlacklist = patch.wordBlacklist;
+  if (Array.isArray(patch.linkWhitelist)) settings.linkWhitelist = patch.linkWhitelist;
+  if (typeof patch.rateLimitPerMin === "number") settings.rateLimitPerMin = patch.rateLimitPerMin;
+  if (Array.isArray(patch.bannedIps)) settings.bannedIps = patch.bannedIps;
+  if (patch.features && typeof patch.features === "object") settings.features = { ...settings.features, ...patch.features };
+  save();
+  return { ...settings };
+}
+
+export function isFeatureOn(key: string, def = false): boolean {
+  return typeof settings.features[key] === "boolean" ? settings.features[key] : def;
+}
+
+/* ================= АНАЛИТИКА ================= */
+
+/** Строит дневную статистику по пользователям и сообщениям (для графиков). */
+export function dayStats(days = 14): DayStat[] {
+  const out: DayStat[] = [];
+  const now = Date.now();
+  for (let i = days - 1; i >= 0; i--) {
+    const start = new Date(now - i * 86400_000);
+    const key = start.toISOString().slice(0, 10);
+    const dayStart = start.setHours(0, 0, 0, 0);
+    const dayEnd = dayStart + 86400_000 - 1;
+    const newUsers = [...users.values()].filter((u) => u.createdAt >= dayStart && u.createdAt <= dayEnd).length;
+    let messages = 0;
+    for (const list of messagesByChat.values()) {
+      for (const m of list) if (m.createdAt >= dayStart && m.createdAt <= dayEnd) messages++;
+    }
+    const activeUsers = [...users.values()].filter(
+      (u) => u.lastSeenAt && u.lastSeenAt >= dayStart && u.lastSeenAt <= dayEnd
+    ).length;
+    out.push({ date: key, newUsers, messages, activeUsers });
+  }
+  return out;
+}
+
+/** Топ активных пользователей по количеству сообщений. */
+export function topActiveUsers(limit = 20): { userId: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const list of messagesByChat.values()) {
+    for (const m of list) counts.set(m.senderId, (counts.get(m.senderId) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([userId, count]) => ({ userId, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
+
+/** Все транзакции (для экономики). */
+export function allTransactions(limit = 500): BerryTx[] {
+  return [...berryTransactions].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
 }

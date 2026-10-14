@@ -1179,6 +1179,300 @@ app.post<{ Params: { messageId: string } }>(
   }
 );
 
+/* ================= СИСТЕМА ПОДАРКОВ ================= */
+
+app.get("/api/gifts/catalog", async (request, reply) => {
+  const auth = currentAuth(request.headers);
+  if (!auth) return reply.code(401).send({ error: "Требуется авторизация" });
+  return { gifts: store.listGiftCatalog(), balance: auth.user.berries };
+});
+
+app.post("/api/gifts/send", async (request, reply) => {
+  const auth = currentAuth(request.headers);
+  if (!auth) return reply.code(401).send({ error: "Требуется авторизация" });
+  const body = (request.body ?? {}) as {
+    giftId?: unknown; toId?: unknown; anonymous?: unknown; note?: unknown; scheduledFor?: unknown;
+  };
+  const giftId = asString(body.giftId) ?? "";
+  const toId = asString(body.toId) ?? "";
+  const anonymous = body.anonymous === true;
+  const note = (asString(body.note) ?? "").trim().slice(0, 200);
+  const scheduledFor = typeof body.scheduledFor === "number" ? body.scheduledFor : undefined;
+  const target = store.getUserById(toId);
+  if (!target) return reply.code(404).send({ error: "Получатель не найден" });
+  const item = store.getGiftItem(giftId);
+  if (!item || !item.active) return reply.code(404).send({ error: "Подарок не найден" });
+  if (item.total > 0 && item.sold >= item.total) {
+    return reply.code(409).send({ error: "Тираж закончился" });
+  }
+  if (auth.user.berries < item.price) {
+    return reply.code(400).send({ error: "Недостаточно звёзд" });
+  }
+  store.addBerries(auth.user.id, -item.price);
+  const gift = store.createGift({
+    giftId: item.id, toId: target.id, fromId: anonymous ? null : auth.user.id,
+    fromName: anonymous ? "Аноним" : auth.user.displayName, note, scheduledFor,
+  });
+  if (!gift) return reply.code(500).send({ error: "Не удалось создать подарок" });
+  sendToUser(target.id, { type: "gift.received", gift });
+  sendToUser(auth.user.id, { type: "berries", berries: auth.user.berries - item.price });
+  if (auth.user.isOwner) {
+    store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName, action: "gift.send",
+      targetType: "user", targetId: target.id, meta: `${item.name} → ${target.username}` });
+  }
+  return { gift, balance: auth.user.berries - item.price };
+});
+
+app.get<{ Params: { userId: string } }>("/api/gifts/user/:userId", async (request, reply) => {
+  const auth = currentAuth(request.headers);
+  if (!auth) return reply.code(401).send({ error: "Требуется авторизация" });
+  const uid = request.params.userId;
+  if (!store.getUserById(uid)) return reply.code(404).send({ error: "Пользователь не найден" });
+  const gifts = store.giftsForUser(uid);
+  return { gifts, collector: store.collectorLevel(uid) };
+});
+
+app.post("/api/promo/redeem", async (request, reply) => {
+  const auth = currentAuth(request.headers);
+  if (!auth) return reply.code(401).send({ error: "Требуется авторизация" });
+  const code = (asString((request.body as { code?: unknown })?.code) ?? "").trim().toLowerCase();
+  const promo = store.findPromo(code);
+  if (!promo || !promo.active) return reply.code(404).send({ error: "Промокод не найден" });
+  if (promo.maxUses > 0 && promo.uses >= promo.maxUses) return reply.code(409).send({ error: "Промокод использован" });
+  if (promo.expiresAt && promo.expiresAt < Date.now()) return reply.code(410).send({ error: "Промокод истёк" });
+  store.updatePromo(code, { uses: promo.uses + 1 });
+  const updated = store.addBerries(auth.user.id, promo.berries);
+  sendToUser(auth.user.id, { type: "berries", berries: updated?.berries ?? auth.user.berries });
+  return { berries: promo.berries, balance: updated?.berries ?? auth.user.berries };
+});
+
+app.post("/api/reports", async (request, reply) => {
+  const auth = currentAuth(request.headers);
+  if (!auth) return reply.code(401).send({ error: "Требуется авторизация" });
+  const body = (request.body ?? {}) as { targetType?: unknown; targetId?: unknown; reason?: unknown };
+  const targetType = asString(body.targetType);
+  const targetId = asString(body.targetId) ?? "";
+  const reason = (asString(body.reason) ?? "").trim().slice(0, 300);
+  if (!["user", "message", "chat"].includes(targetType ?? "") || !targetId) {
+    return reply.code(400).send({ error: "Некорректная жалоба" });
+  }
+  const report = store.addReport({ reporterId: auth.user.id, targetType: targetType as "user" | "message" | "chat", targetId, reason });
+  return { report };
+});
+
+/* ================= НАСТРОЙКИ СЕРВЕРА ================= */
+
+app.get("/api/settings", async (request, reply) => {
+  const auth = currentAuth(request.headers);
+  if (!auth) return reply.code(401).send({ error: "Требуется авторизация" });
+  const s = store.serverSettings();
+  return { settings: { registrationOpen: s.registrationOpen, rateLimitPerMin: s.rateLimitPerMin, features: s.features } };
+});
+
+/* ================= файлы: раздел модерации ================= */
+
+app.get("/api/admin/logs", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  return { logs: store.listAdminLogs() };
+});
+
+app.get("/api/admin/reports", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const status = asString((request.query as { status?: string })?.status) as
+    | "open" | "resolved" | "dismissed" | null;
+  return { reports: store.listReports(status ?? undefined) };
+});
+
+app.post<{ Params: { id: string } }>("/api/admin/reports/:id/resolve", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const status = ((request.body as { status?: unknown })?.status === "dismissed" ? "dismissed" : "resolved") as
+    "resolved" | "dismissed";
+  const report = store.resolveReport(request.params.id, auth.user.id, status);
+  if (!report) return reply.code(404).send({ error: "Жалоба не найдена" });
+  store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName,
+    action: status === "resolved" ? "report.resolve" : "report.dismiss", targetType: "report", targetId: report.id });
+  return { report };
+});
+
+/* --- модерация: mute, shadowban, бан с причиной и сроком --- */
+
+app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/mute", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const minutes = Number((request.body as { minutes?: unknown })?.minutes ?? 0);
+  const until = minutes > 0 ? Date.now() + minutes * 60_000 : undefined;
+  const updated = store.updateUser(request.params.userId, { mutedUntil: until });
+  if (!updated) return reply.code(404).send({ error: "Пользователь не найден" });
+  store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName,
+    action: until ? "user.mute" : "user.unmute", targetType: "user", targetId: updated.id, meta: minutes ? `${minutes} мин` : "навсегда" });
+  return { user: store.toPublicUser(updated) };
+});
+
+app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/shadowban", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const on = (request.body as { on?: unknown })?.on === true;
+  const updated = store.updateUser(request.params.userId, { shadowBanned: on });
+  if (!updated) return reply.code(404).send({ error: "Пользователь не найден" });
+  store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName,
+    action: on ? "user.shadowban" : "user.unshadowban", targetType: "user", targetId: updated.id });
+  return { user: store.toPublicUser(updated) };
+});
+
+app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/ban", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const body = (request.body ?? {}) as { ban?: unknown; reason?: unknown; minutes?: unknown };
+  const ban = body.ban === true;
+  const reason = (asString(body.reason) ?? "").trim().slice(0, 200);
+  const minutes = Number(body.minutes ?? 0);
+  const userId = request.params.userId;
+  const user = store.getUserById(userId);
+  if (!user) return reply.code(404).send({ error: "Пользователь не найден" });
+  if (user.isBot) return reply.code(400).send({ error: "Бота банить нельзя" });
+  if (user.id === auth.user.id) return reply.code(400).send({ error: "Нельзя забанить себя" });
+  if ((user.isOwner || user.phone === OWNER_PHONE) && ban) {
+    return reply.code(400).send({ error: "Нельзя забанить владельца" });
+  }
+  const bannedUntil = ban && minutes > 0 ? Date.now() + minutes * 60_000 : undefined;
+  const updated = store.updateUser(userId, {
+    isBanned: ban, bannedReason: ban ? reason : undefined, bannedUntil,
+  });
+  if (ban) { closeUserSockets(userId); destroyUserSessions(userId); }
+  store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName,
+    action: ban ? "user.ban" : "user.unban", targetType: "user", targetId: userId, meta: reason || undefined });
+  return { user: store.toPublicUser(updated ?? user) };
+});
+
+/* --- подарки: управление каталогом --- */
+
+app.post("/api/admin/gifts", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const body = (request.body ?? {}) as {
+    name?: unknown; glyph?: unknown; rarity?: unknown; category?: unknown;
+    price?: unknown; total?: unknown;
+  };
+  const name = (asString(body.name) ?? "").trim();
+  if (!name) return reply.code(400).send({ error: "Укажи название" });
+  const item = store.addGiftItem({
+    id: newId(), name, glyph: (asString(body.glyph) ?? "🎁").slice(0, 8),
+    rarity: (asString(body.rarity) as "common") ?? "common",
+    category: asString(body.category) ?? "collectible",
+    price: Math.max(0, Math.trunc(Number(body.price ?? 10))),
+    total: Math.max(0, Math.trunc(Number(body.total ?? 0))),
+    active: true,
+  });
+  store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName, action: "gift.create", targetType: "gift", targetId: item.id });
+  return { gift: item };
+});
+
+app.patch<{ Params: { id: string } }>("/api/admin/gifts/:id", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const body = (request.body ?? {}) as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+  for (const k of ["name", "glyph", "rarity", "category", "active"]) if (k in body) patch[k] = body[k];
+  if ("price" in body) patch.price = Math.max(0, Math.trunc(Number(body.price)));
+  if ("total" in body) patch.total = Math.max(0, Math.trunc(Number(body.total)));
+  const item = store.updateGiftItem(request.params.id, patch);
+  if (!item) return reply.code(404).send({ error: "Подарок не найден" });
+  return { gift: item };
+});
+
+app.delete<{ Params: { id: string } }>("/api/admin/gifts/:id", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  if (!store.removeGiftItem(request.params.id)) return reply.code(404).send({ error: "Подарок не найден" });
+  return { ok: true };
+});
+
+/* --- промокоды --- */
+
+app.post("/api/admin/promo", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const body = (request.body ?? {}) as { code?: unknown; berries?: unknown; maxUses?: unknown; expiresAt?: unknown };
+  const code = (asString(body.code) ?? "").trim();
+  if (!/^[a-z0-9_-]{3,32}$/i.test(code)) return reply.code(400).send({ error: "Код: 3–32 символа" });
+  if (store.findPromo(code)) return reply.code(409).send({ error: "Такой код уже есть" });
+  const promo = store.createPromo({
+    code, berries: Math.max(1, Math.trunc(Number(body.berries ?? 50))),
+    maxUses: Math.max(0, Math.trunc(Number(body.maxUses ?? 0))),
+    expiresAt: typeof body.expiresAt === "number" ? body.expiresAt : null,
+    active: true, createdBy: auth.user.id,
+  });
+  return { promo };
+});
+
+app.get("/api/admin/promo", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  return { promos: store.listPromos() };
+});
+
+app.patch<{ Params: { code: string } }>("/api/admin/promo/:code", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const active = (request.body as { active?: unknown })?.active;
+  const promo = store.updatePromo(request.params.code, typeof active === "boolean" ? { active } : {});
+  if (!promo) return reply.code(404).send({ error: "Промокод не найден" });
+  return { promo };
+});
+
+/* --- настройки сервера (feature-флаги, чёрный список, регистрация) --- */
+
+app.put("/api/admin/settings", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const body = (request.body ?? {}) as Partial<{
+    registrationOpen: boolean; wordBlacklist: string[]; linkWhitelist: string[];
+    rateLimitPerMin: number; bannedIps: string[]; features: Record<string, boolean>;
+  }>;
+  const s = store.updateSettings(body);
+  store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName, action: "settings.update",
+    meta: Object.keys(body).join(", ") });
+  return { settings: s };
+});
+
+/* --- аналитика --- */
+
+app.get("/api/admin/analytics", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const days = Math.min(90, Math.max(7, Number((request.query as { days?: string })?.days ?? 14)));
+  const top = store.topActiveUsers(20).map((t) => ({
+    ...t, user: store.toPublicUser(store.getUserById(t.userId) ?? { id: t.userId, username: "unknown", displayName: "Удалён", avatarColor: "#666", berries: 0, createdAt: 0, passwordHash: "", salt: "" } as StoredUser),
+  }));
+  return { days: store.dayStats(days), top };
+});
+
+app.get("/api/admin/economy", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  return { transactions: store.allTransactions(500), total: store.berriesTotal() };
+});
+
+app.get("/api/admin/export", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const format = asString((request.query as { format?: string })?.format) ?? "json";
+  const users = store.listUsers().map((u) => store.toPublicUser(u));
+  store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName, action: "data.export", meta: format });
+  if (format === "csv") {
+    reply.header("content-type", "text/csv; charset=utf-8");
+    reply.header("content-disposition", "attachment; filename=nova-users.csv");
+    const head = "id,username,displayName,phone,berries,isOwner,isPremium,isVerified,isBanned,createdAt";
+    const rows = users.map((u) => [u.id, u.username, `"${u.displayName}"`, u.phone ?? "", u.berries,
+      u.isOwner, u.isPremium, u.isVerified, u.isBanned, new Date(u.createdAt).toISOString()].join(","));
+    return [head, ...rows].join("\n");
+  }
+  return { users };
+});
+
 /* --------------------------------- файлы ---------------------------------- */
 
 app.post("/api/uploads", async (request, reply) => {

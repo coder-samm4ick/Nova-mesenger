@@ -19,7 +19,54 @@ export type User = {
   berries: number;
   lastSeenAt?: number;
   createdAt: number;
+  /* модерация */
+  mutedUntil?: number;
+  shadowBanned?: boolean;
+  bannedReason?: string;
+  bannedUntil?: number;
+  ip?: string;
+  flags?: Record<string, boolean>;
 };
+
+/* --- подарки --- */
+export type GiftRarity = "common" | "rare" | "epic" | "legendary" | "limited";
+
+export type GiftCatalogItem = {
+  id: string; name: string; glyph: string; rarity: GiftRarity; category: string;
+  price: number; total: number; sold: number; active: boolean; createdAt: number;
+};
+
+export type UserGift = {
+  serial: number; giftId: string; name: string; glyph: string; rarity: GiftRarity;
+  value: number; toId: string; fromId: string | null; fromName: string; note?: string;
+  scheduledFor?: number; accepted: boolean; createdAt: number;
+};
+
+export type CollectorInfo = { level: number; totalValue: number; nextIn: number };
+
+/* --- жалобы / логи / промо --- */
+export type Report = {
+  id: string; reporterId: string; targetType: "user" | "message" | "chat";
+  targetId: string; reason: string; status: "open" | "resolved" | "dismissed";
+  createdAt: number; resolvedBy?: string; resolvedAt?: number;
+};
+
+export type AdminLog = {
+  id: string; adminId: string; adminName: string; action: string;
+  targetType?: string; targetId?: string; meta?: string; createdAt: number;
+};
+
+export type PromoCode = {
+  code: string; berries: number; uses: number; maxUses: number;
+  expiresAt: number | null; active: boolean; createdBy: string; createdAt: number;
+};
+
+export type ServerSettings = {
+  registrationOpen: boolean; rateLimitPerMin: number;
+  features: Record<string, boolean>;
+};
+
+export type DayStat = { date: string; newUsers: number; messages: number; activeUsers: number };
 
 /** Сводка для панели владельца. */
 export type AdminStats = {
@@ -207,4 +254,6 @@ export type ServerEvent =
   | { type: "pong" }
   | { type: "error"; error: string }
   /** Объявление от владельца (рассылка). */
-  | { type: "announcement"; text: string };
+  | { type: "announcement"; text: string }
+  | { type: "gift.received"; gift: UserGift }
+  | { type: "notice"; kind: string; text: string };

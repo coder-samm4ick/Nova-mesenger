@@ -5,13 +5,21 @@
 
 import type {
   AdminChatView,
+  AdminLog,
   AdminStats,
   AdminUserDetail,
   BerryTx,
   ChatView,
+  CollectorInfo,
+  DayStat,
+  GiftCatalogItem,
   Message,
   PhotoAttachment,
+  PromoCode,
+  Report,
+  ServerSettings,
   User,
+  UserGift,
   UserProfile,
 } from "./chat-types";
 
@@ -385,4 +393,87 @@ export const api = {
       `/api/admin/messages/${encodeURIComponent(messageId)}/delete`,
       { method: "POST", token, body: {} }
     ),
+
+  /* --------------------------- подарки и экономика ------------------------- */
+
+  giftsCatalog: (token: string) =>
+    request<{ gifts: GiftCatalogItem[]; balance: number }>("/api/gifts/catalog", { token }),
+
+  sendGift: (token: string, giftId: string, toId: string, opts: {
+    anonymous?: boolean; note?: string; scheduledFor?: number;
+  } = {}) =>
+    request<{ gift: UserGift; balance: number }>("/api/gifts/send", {
+      method: "POST", token,
+      body: { giftId, toId, anonymous: opts.anonymous, note: opts.note, scheduledFor: opts.scheduledFor },
+    }),
+
+  userGifts: (token: string, userId: string) =>
+    request<{ gifts: UserGift[]; collector: CollectorInfo }>(
+      `/api/gifts/user/${encodeURIComponent(userId)}`, { token }),
+
+  redeemPromo: (token: string, code: string) =>
+    request<{ berries: number; balance: number }>("/api/promo/redeem", {
+      method: "POST", token, body: { code },
+    }),
+
+  sendReport: (token: string, targetType: "user" | "message" | "chat", targetId: string, reason: string) =>
+    request<{ report: Report }>("/api/reports", {
+      method: "POST", token, body: { targetType, targetId, reason },
+    }),
+
+  settings: (token: string) =>
+    request<{ settings: ServerSettings }>("/api/settings", { token }),
+
+  /* ----------------------- админ: расширенная панель ----------------------- */
+
+  adminLogs: (token: string) => request<{ logs: AdminLog[] }>("/api/admin/logs", { token }),
+
+  adminReports: (token: string, status = "") =>
+    request<{ reports: Report[] }>(`/api/admin/reports${status ? `?status=${status}` : ""}`, { token }),
+
+  adminResolveReport: (token: string, id: string, status: "resolved" | "dismissed") =>
+    request<{ report: Report }>(`/api/admin/reports/${encodeURIComponent(id)}/resolve`, {
+      method: "POST", token, body: { status },
+    }),
+
+  adminMute: (token: string, userId: string, minutes: number) =>
+    request<{ user: User }>(`/api/admin/users/${encodeURIComponent(userId)}/mute`, {
+      method: "POST", token, body: { minutes },
+    }),
+
+  adminShadowban: (token: string, userId: string, on: boolean) =>
+    request<{ user: User }>(`/api/admin/users/${encodeURIComponent(userId)}/shadowban`, {
+      method: "POST", token, body: { on },
+    }),
+
+  adminGifts: (token: string) => request<{ gifts: GiftCatalogItem[] }>("/api/admin/gifts", { token }),
+
+  adminCreateGift: (token: string, gift: { name: string; glyph: string; rarity: string; category: string; price: number; total: number }) =>
+    request<{ gift: GiftCatalogItem }>("/api/admin/gifts", { method: "POST", token, body: gift }),
+
+  adminUpdateGift: (token: string, id: string, patch: Record<string, unknown>) =>
+    request<{ gift: GiftCatalogItem }>(`/api/admin/gifts/${encodeURIComponent(id)}`, {
+      method: "PATCH", token, body: patch }),
+
+  adminDeleteGift: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/api/admin/gifts/${encodeURIComponent(id)}`, { method: "DELETE", token }),
+
+  adminPromos: (token: string) => request<{ promos: PromoCode[] }>("/api/admin/promo", { token }),
+
+  adminCreatePromo: (token: string, promo: { code: string; berries: number; maxUses: number; expiresAt?: number | null }) =>
+    request<{ promo: PromoCode }>("/api/admin/promo", { method: "POST", token, body: promo }),
+
+  adminUpdatePromo: (token: string, code: string, active: boolean) =>
+    request<{ promo: PromoCode }>(`/api/admin/promo/${encodeURIComponent(code)}`, {
+      method: "PATCH", token, body: { active } }),
+
+  adminUpdateSettings: (token: string, patch: Partial<ServerSettings> & Record<string, unknown>) =>
+    request<{ settings: ServerSettings }>("/api/admin/settings", { method: "PUT", token, body: patch }),
+
+  adminAnalytics: (token: string, days = 14) =>
+    request<{ days: DayStat[]; top: { userId: string; count: number; user: User }[] }>(
+      `/api/admin/analytics?days=${days}`, { token }),
+
+  adminEconomy: (token: string) =>
+    request<{ transactions: BerryTx[]; total: number }>("/api/admin/economy", { token }),
 };
