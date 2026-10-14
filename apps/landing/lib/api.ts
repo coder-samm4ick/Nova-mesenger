@@ -6,11 +6,13 @@
 import type {
   AdminChatView,
   AdminStats,
+  AdminUserDetail,
   BerryTx,
   ChatView,
   Message,
   PhotoAttachment,
   User,
+  UserProfile,
 } from "./chat-types";
 
 const API_STORAGE_KEY = "nova.apiBase";
@@ -337,6 +339,50 @@ export const api = {
   adminDeleteChat: (token: string, chatId: string) =>
     request<{ ok: boolean }>(
       `/api/admin/chats/${encodeURIComponent(chatId)}/delete`,
+      { method: "POST", token, body: {} }
+    ),
+
+  /* --------------------------- профиль и модерация ------------------------- */
+
+  /** Публичный профиль: статусы, онлайн, общие чаты. */
+  userProfile: (token: string, userId: string) =>
+    request<UserProfile>(`/api/users/${encodeURIComponent(userId)}/profile`, { token }),
+
+  /** Детальная карточка для панели владельца (со списком чатов). */
+  adminUserDetail: (token: string, userId: string) =>
+    request<AdminUserDetail>(`/api/admin/users/${encodeURIComponent(userId)}/detail`, {
+      token,
+    }),
+
+  adminResetPassword: (token: string, userId: string, password: string) =>
+    request<{ ok: boolean }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/password`,
+      { method: "POST", token, body: { password } }
+    ),
+
+  adminDeleteUser: (token: string, userId: string) =>
+    request<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+      token,
+    }),
+
+  adminBroadcast: (token: string, text: string) =>
+    request<{ sent: number }>("/api/admin/broadcast", {
+      method: "POST",
+      token,
+      body: { text },
+    }),
+
+  adminMaintenance: (token: string, on: boolean) =>
+    request<{ maintenance: boolean }>("/api/admin/maintenance", {
+      method: "POST",
+      token,
+      body: { on },
+    }),
+
+  adminDeleteMessage: (token: string, messageId: string) =>
+    request<{ ok: boolean }>(
+      `/api/admin/messages/${encodeURIComponent(messageId)}/delete`,
       { method: "POST", token, body: {} }
     ),
 };

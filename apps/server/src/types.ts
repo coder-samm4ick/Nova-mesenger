@@ -123,6 +123,13 @@ export type AdminStats = {
   uploads: number;
   berriesTotal: number;
   online: number;
+  /** Системные показатели сервера. */
+  uptimeSec: number;
+  memoryMB: number;
+  wsConnections: number;
+  version: string;
+  maintenance: boolean;
+  startedAt: number;
 };
 
 /** Чат в списке панели владельца. */
@@ -193,4 +200,6 @@ export type ServerEvent =
       payload?: unknown;
     }
   | { type: "pong" }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string }
+  /** Объявление от владельца (рассылка) — показывается уведомлением. */
+  | { type: "announcement"; text: string };

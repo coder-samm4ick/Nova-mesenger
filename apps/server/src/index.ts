@@ -30,6 +30,7 @@ import { WebSocket } from "ws";
 import {
   createSession,
   destroySession,
+  destroyUserSessions,
   hashPassword,
   makeSalt,
   newId,
@@ -60,6 +61,7 @@ const PHONE_DIGITS_RE = /^\d{8,15}$/;
 const OWNER_PHONE = (process.env.NOVA_OWNER_PHONE ?? "8882229922").replace(/\D/g, "");
 const PREMIUM_PRICE = Number(process.env.NOVA_PREMIUM_PRICE ?? 199);
 const PREMIUM_DAYS = Number(process.env.NOVA_PREMIUM_DAYS ?? 30);
+const SERVER_VERSION = process.env.NOVA_VERSION ?? "2.1.0";
 
 const app = fastify({ logger: true });
 
@@ -213,6 +215,11 @@ app.post("/api/auth/register", async (request, reply) => {
   if (phone && store.hasPhone(phone)) {
     return reply.code(409).send({ error: "Этот номер уже зарегистрирован" });
   }
+  if (store.serverMeta().maintenance && phone !== OWNER_PHONE) {
+    return reply
+      .code(503)
+      .send({ error: "Сервер на обслуживании — регистрация временно закрыта" });
+  }
   if (!username) {
     username = autoUsername(phone);
   } else if (!USERNAME_RE.test(username)) {
@@ -267,6 +274,11 @@ app.post("/api/auth/login", async (request, reply) => {
   if (!ok) return reply.code(401).send({ error: "Неверный логин или пароль" });
   if (user.isBanned) {
     return reply.code(403).send({ error: "Аккаунт заблокирован владельцем" });
+  }
+  if (store.serverMeta().maintenance && !user.isOwner) {
+    return reply
+      .code(503)
+      .send({ error: "Сервер на обслуживании — вход только для владельца" });
   }
 
   const token = createSession(user.id);
@@ -803,6 +815,7 @@ app.get("/api/admin/stats", async (request, reply) => {
   const auth = ownerAuth(request, reply);
   if (!auth) return;
   const types = store.chatTypeCounts();
+  const meta = store.serverMeta();
   const stats = {
     users: store.listUsers().filter((u) => !u.isBot).length,
     bots: store.listBots().length,
@@ -815,6 +828,12 @@ app.get("/api/admin/stats", async (request, reply) => {
     uploads: store.uploadCount(),
     berriesTotal: store.berriesTotal(),
     online: connectedUserIds().length,
+    uptimeSec: Math.round(process.uptime()),
+    memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    wsConnections: connectedUserIds().length,
+    version: SERVER_VERSION,
+    maintenance: meta.maintenance,
+    startedAt: meta.startedAt,
   };
   return { stats };
 });
@@ -909,7 +928,10 @@ app.post<{ Params: { userId: string } }>(
       return reply.code(400).send({ error: "Нельзя забанить владельца" });
     }
     const updated = store.updateUser(userId, { isBanned: ban });
-    if (ban) closeUserSockets(userId);
+    if (ban) {
+      closeUserSockets(userId);
+      destroyUserSessions(userId);
+    }
     return { user: store.toPublicUser(updated ?? user) };
   }
 );
@@ -979,6 +1001,179 @@ app.post<{ Params: { chatId: string } }>(
     store.deleteChat(chat.id);
     for (const member of chat.memberIds) {
       sendToUser(member, { type: "chat.deleted", chatId: chat.id });
+    }
+    return { ok: true };
+  }
+);
+
+/* --------------------- профиль, модерация, рассылка ------------------------ */
+
+/** Публичный профиль пользователя: статусы, онлайн, общие чаты. */
+app.get<{ Params: { userId: string } }>(
+  "/api/users/:userId/profile",
+  async (request, reply) => {
+    const auth = currentAuth(request.headers);
+    if (!auth) return reply.code(401).send({ error: "Требуется авторизация" });
+    const user = store.getUserById(request.params.userId);
+    if (!user) return reply.code(404).send({ error: "Пользователь не найден" });
+    const sharedChats = store
+      .listChats()
+      .filter(
+        (c) =>
+          c.type !== "saved" &&
+          c.memberIds.includes(auth.user.id) &&
+          c.memberIds.includes(user.id)
+      ).length;
+    return {
+      user: store.toPublicUser(user),
+      online: connectedUserIds().includes(user.id),
+      sharedChats,
+      messagesSent: auth.user.isOwner ? store.userMessageCount(user.id) : undefined,
+    };
+  }
+);
+
+/** Карточка пользователя для панели: профиль, счётчики и его чаты. */
+app.get<{ Params: { userId: string } }>(
+  "/api/admin/users/:userId/detail",
+  async (request, reply) => {
+    const auth = ownerAuth(request, reply);
+    if (!auth) return;
+    const user = store.getUserById(request.params.userId);
+    if (!user) return reply.code(404).send({ error: "Пользователь не найден" });
+    const chats = store
+      .adminChatList()
+      .filter((c) => c.memberIds.includes(user.id))
+      .slice(0, 30);
+    return {
+      user: store.toPublicUser(user),
+      online: connectedUserIds().includes(user.id),
+      messagesSent: store.userMessageCount(user.id),
+      transfers: store.getBerryTransactions(user.id, 500).length,
+      chats,
+    };
+  }
+);
+
+/** Сброс пароля: человек входит только с новым паролем, сессии закрываются. */
+app.post<{ Params: { userId: string } }>(
+  "/api/admin/users/:userId/password",
+  async (request, reply) => {
+    const auth = ownerAuth(request, reply);
+    if (!auth) return;
+    const password = asString((request.body as { password?: unknown })?.password) ?? "";
+    if (password.length < MIN_PASSWORD) {
+      return reply.code(400).send({ error: `Пароль: минимум ${MIN_PASSWORD} символов` });
+    }
+    const user = store.getUserById(request.params.userId);
+    if (!user) return reply.code(404).send({ error: "Пользователь не найден" });
+    if (user.isBot) return reply.code(400).send({ error: "У бота нет пароля" });
+    const salt = makeSalt();
+    const passwordHash = await hashPassword(password, salt);
+    store.setUserPassword(user.id, passwordHash, salt);
+    closeUserSockets(user.id);
+    destroyUserSessions(user.id);
+    return { ok: true };
+  }
+);
+
+/** Полное удаление аккаунта: чаты, сообщения, сессии. */
+app.delete<{ Params: { userId: string } }>(
+  "/api/admin/users/:userId",
+  async (request, reply) => {
+    const auth = ownerAuth(request, reply);
+    if (!auth) return;
+    const user = store.getUserById(request.params.userId);
+    if (!user) return reply.code(404).send({ error: "Пользователь не найден" });
+    if (user.id === auth.user.id) {
+      return reply.code(400).send({ error: "Нельзя удалить самого себя" });
+    }
+    if (user.phone === OWNER_PHONE) {
+      return reply.code(400).send({ error: "Нельзя удалить основного владельца" });
+    }
+    if (user.isBot && user.username === store.NOVA_BOT_USERNAME) {
+      return reply.code(400).send({ error: "Встроенный Nova неделим" });
+    }
+    for (const chat of store.listChats()) {
+      if (!chat.memberIds.includes(user.id)) continue;
+      for (const member of chat.memberIds) {
+        if (member !== user.id) {
+          sendToUser(member, { type: "chat.deleted", chatId: chat.id });
+        }
+      }
+    }
+    closeUserSockets(user.id);
+    destroyUserSessions(user.id);
+    store.deleteUser(user.id);
+    return { ok: true };
+  }
+);
+
+/** Рассылка: сообщение в чат Nova + уведомление всем в сети. */
+app.post("/api/admin/broadcast", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const text = (asString((request.body as { text?: unknown })?.text) ?? "").trim();
+  if (!text) return reply.code(400).send({ error: "Текст рассылки пуст" });
+  if (text.length > MAX_TEXT) {
+    return reply.code(400).send({ error: `Рассылка: до ${MAX_TEXT} символов` });
+  }
+  const botId = store.novaBotId();
+  let sent = 0;
+  for (const user of store.listUsers()) {
+    if (user.isBot) continue;
+    if (botId) {
+      const chat = store.ensureDm(user.id, botId);
+      store.addMessage(chat.id, botId, text, { type: "text" });
+      const last = store.getLastMessage(chat.id);
+      if (last) sendToUser(user.id, { type: "message.new", message: last });
+    }
+    sendToUser(user.id, { type: "announcement", text });
+    sent += 1;
+  }
+  return { sent };
+});
+
+/** Режим обслуживания: вход и регистрация — только владельцу. */
+app.post("/api/admin/maintenance", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const on = (request.body as { on?: unknown })?.on === true;
+  store.setMaintenance(on);
+  if (on) {
+    for (const user of store.listUsers()) {
+      if (user.isBot || user.isOwner) continue;
+      sendToUser(user.id, {
+        type: "announcement",
+        text: "Сервер временно на обслуживании. Зайди позже.",
+      });
+      closeUserSockets(user.id);
+      destroyUserSessions(user.id);
+    }
+  }
+  return { maintenance: on };
+});
+
+/** Модерация: удалить любое сообщение на сервере. */
+app.post<{ Params: { messageId: string } }>(
+  "/api/admin/messages/:messageId/delete",
+  async (request, reply) => {
+    const auth = ownerAuth(request, reply);
+    if (!auth) return;
+    const found = store.findChatByMessage(request.params.messageId);
+    if (!found) return reply.code(404).send({ error: "Сообщение не найдено" });
+    const chat = store.getChat(found.chatId);
+    if (!store.deleteMessage(found.chatId, found.message.id)) {
+      return reply.code(404).send({ error: "Сообщение не найдено" });
+    }
+    if (chat) {
+      for (const member of chat.memberIds) {
+        sendToUser(member, {
+          type: "message.deleted",
+          messageId: found.message.id,
+          chatId: found.chatId,
+        });
+      }
     }
     return { ok: true };
   }

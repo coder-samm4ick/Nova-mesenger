@@ -34,6 +34,30 @@ export type AdminStats = {
   uploads: number;
   berriesTotal: number;
   online: number;
+  /** Системные показатели сервера. */
+  uptimeSec: number;
+  memoryMB: number;
+  wsConnections: number;
+  version: string;
+  maintenance: boolean;
+  startedAt: number;
+};
+
+/** Карточка профиля (ответ /api/users/:id/profile). */
+export type UserProfile = {
+  user: User;
+  online: boolean;
+  sharedChats: number;
+  messagesSent?: number;
+};
+
+/** Детальная карточка для панели владельца. */
+export type AdminUserDetail = {
+  user: User;
+  online: boolean;
+  messagesSent: number;
+  transfers: number;
+  chats: AdminChatView[];
 };
 
 /** Чат в списке панели владельца. */
@@ -181,4 +205,6 @@ export type ServerEvent =
       payload?: unknown;
     }
   | { type: "pong" }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string }
+  /** Объявление от владельца (рассылка). */
+  | { type: "announcement"; text: string };

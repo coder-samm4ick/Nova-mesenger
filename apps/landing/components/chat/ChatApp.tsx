@@ -21,6 +21,8 @@ import {
   Check,
   CheckDouble,
   Search,
+  ChatBubble,
+  Gear,
   Users,
   Bot,
   Sparkles,
@@ -37,11 +39,13 @@ import {
   REACTION_LABELS,
   stickerLabel,
 } from "@/components/Stickers";
-import { api, mediaUrl, type AuthResult, WS_URL } from "@/lib/api";
+import { api, mediaUrl, API_BASE, type AuthResult, WS_URL } from "@/lib/api";
+import { releases } from "@/lib/site";
 import { isNativeApp } from "@/lib/shell";
 import type {
   AdminChatView,
   AdminStats,
+  AdminUserDetail,
   BerryTx,
   ChatView,
   ClientEvent,
@@ -51,6 +55,7 @@ import type {
   MessageRef,
   ServerEvent,
   User,
+  UserProfile,
 } from "@/lib/chat-types";
 
 import { AuthPanel } from "./AuthPanel";
@@ -397,8 +402,20 @@ export function ChatApp() {
   const [berryTx, setBerryTx] = useState<BerryTx[]>([]);
 
   const [stickerOpen, setStickerOpen] = useState(false);
-  const [modal, setModal] = useState<"none" | "new" | "profile" | "transfer" | "admin">("none");
+  const [modal, setModal] = useState<"none" | "new" | "transfer" | "profile">("none");
+  // Вкладки приложения (как в Telegram): чаты / настройки / админ-панель.
+  const [tab, setTab] = useState<"chats" | "settings" | "admin">("chats");
   const [call, setCall] = useState<CallState>(EMPTY_CALL);
+
+  // Карточка профиля (другого пользователя)
+  const [profileUser, setProfileUser] = useState<User | null>(null);
+  const [profileInfo, setProfileInfo] = useState<UserProfile | null>(null);
+  const [profileDetail, setProfileDetail] = useState<AdminUserDetail | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileErr, setProfileErr] = useState<string | null>(null);
+  const [pResetPass, setPResetPass] = useState("");
+  // Баннер объявления (рассылка владельца)
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Модал «Новый чат»
   const [nTab, setNTab] = useState<"users" | "group" | "channel" | "browse">("users");
@@ -419,9 +436,14 @@ export function ChatApp() {
   const [xUsers, setXUsers] = useState<User[]>([]);
 
   // Панель владельца
-  const [aTab, setATab] = useState<"stats" | "users" | "bots" | "channels" | "groups">("stats");
+  const [aTab, setATab] = useState<
+    "stats" | "users" | "bots" | "channels" | "groups" | "broadcast" | "system"
+  >("stats");
   const [aStats, setAStats] = useState<AdminStats | null>(null);
   const [aQ, setAQ] = useState("");
+  const [aFilter, setAFilter] = useState<
+    "all" | "online" | "premium" | "verified" | "owner" | "banned"
+  >("all");
   const [aUsers, setAUsers] = useState<User[]>([]);
   const [aBots, setABots] = useState<User[]>([]);
   const [aChats, setAChats] = useState<AdminChatView[]>([]);
@@ -431,6 +453,8 @@ export function ChatApp() {
   const [aBusy, setABusy] = useState(false);
   const [aDanger, setADanger] = useState<string | null>(null);
   const [aMsg, setAMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [bcText, setBcText] = useState("");
+  const [bcBusy, setBcBusy] = useState(false);
 
   const [profileName, setProfileName] = useState("");
   const [premiumPrice, setPremiumPrice] = useState(199);
@@ -996,6 +1020,14 @@ export function ChatApp() {
       case "error":
         setError(event.error);
         break;
+      case "announcement": {
+        const text = event.text;
+        setNotice(text);
+        window.setTimeout(() => {
+          setNotice((cur) => (cur === text ? null : cur));
+        }, 9000);
+        break;
+      }
       default:
         break;
     }
@@ -1147,7 +1179,7 @@ export function ChatApp() {
   /* --------------------------- панель владельца --------------------------- */
 
   useEffect(() => {
-    if (modal !== "admin") return;
+    if (tab !== "admin") return;
     const current = tokenRef.current;
     const viewer = meRef.current;
     if (!current || !viewer?.isOwner) return;
@@ -1155,7 +1187,7 @@ export function ChatApp() {
     setAMsg(null);
     const load = async () => {
       try {
-        if (aTab === "stats") {
+        if (aTab === "stats" || aTab === "system") {
           const res = await api.adminStats(current);
           if (alive) setAStats(res.stats);
         } else if (aTab === "users") {
@@ -1178,7 +1210,7 @@ export function ChatApp() {
     return () => {
       alive = false;
     };
-  }, [modal, aTab, aQ]);
+  }, [tab, aTab, aQ]);
 
   function aAmount(userId: string): number {
     const v = Number(aAmounts[userId] ?? 10);
@@ -1206,8 +1238,10 @@ export function ChatApp() {
       const res = await api.adminBerries(current, user.id, delta);
       aPatchUser(user.id, res.user);
       setAMsg({ kind: "ok", text: `${res.user.displayName} — звёзд: ${res.user.berries}` });
+      return res.user;
     } catch (err) {
       setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+      return null;
     }
   }
 
@@ -1223,8 +1257,10 @@ export function ChatApp() {
           ? `Premium включён для ${res.user.displayName}`
           : `Premium убран у ${res.user.displayName}`,
       });
+      return res.user;
     } catch (err) {
       setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+      return null;
     }
   }
 
@@ -1240,8 +1276,10 @@ export function ChatApp() {
           ? `${res.user.displayName} теперь владелец`
           : `Роль владельца снята с ${res.user.displayName}`,
       });
+      return res.user;
     } catch (err) {
       setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+      return null;
     }
   }
 
@@ -1257,8 +1295,10 @@ export function ChatApp() {
           ? `${res.user.displayName} заблокирован`
           : `${res.user.displayName} разблокирован`,
       });
+      return res.user;
     } catch (err) {
       setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+      return null;
     }
   }
 
@@ -1318,8 +1358,10 @@ export function ChatApp() {
           ? `${res.user.displayName} — проверенный аккаунт`
           : `Галочка снята с ${res.user.displayName}`,
       });
+      return res.user;
     } catch (err) {
       setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+      return null;
     }
   }
 
@@ -1339,6 +1381,199 @@ export function ChatApp() {
       });
     } catch (err) {
       setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+    }
+  }
+
+  /* ------------------------------ профиль --------------------------------- */
+
+  /** Открывает карточку профиля пользователя (своё — это вкладка настроек). */
+  function openProfile(user: User) {
+    const current = tokenRef.current;
+    if (!current) return;
+    if (user.id === meRef.current?.id) {
+      setTab("settings");
+      return;
+    }
+    setProfileUser(user);
+    setProfileInfo(null);
+    setProfileDetail(null);
+    setProfileErr(null);
+    setProfileBusy(true);
+    setPResetPass("");
+    setModal("profile");
+    void (async () => {
+      try {
+        const info = await api.userProfile(current, user.id);
+        setProfileUser(info.user);
+        setProfileInfo(info);
+        if (meRef.current?.isOwner) {
+          try {
+            setProfileDetail(await api.adminUserDetail(current, user.id));
+          } catch {
+            setProfileDetail(null);
+          }
+        }
+      } catch (err) {
+        setProfileErr(err instanceof Error ? err.message : "Не удалось открыть профиль");
+      } finally {
+        setProfileBusy(false);
+      }
+    })();
+  }
+
+  /** Перечитывает карточку после действий владельца. */
+  async function refreshProfile() {
+    const current = tokenRef.current;
+    const target = profileUser;
+    if (!current || !target) return;
+    try {
+      const info = await api.userProfile(current, target.id);
+      setProfileUser(info.user);
+      setProfileInfo(info);
+      if (meRef.current?.isOwner) {
+        try {
+          setProfileDetail(await api.adminUserDetail(current, target.id));
+        } catch {
+          /* детали не критичны */
+        }
+      }
+    } catch {
+      /* тихо: карточка уже показана */
+    }
+  }
+
+  async function aResetPassword(user: User, password: string): Promise<boolean> {
+    const current = tokenRef.current;
+    if (!current) return false;
+    try {
+      await api.adminResetPassword(current, user.id, password);
+      setAMsg({ kind: "ok", text: `Новый пароль сохранён для ${user.displayName}` });
+      setPResetPass("");
+      return true;
+    } catch (err) {
+      setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+      return false;
+    }
+  }
+
+  async function aDeleteUser(user: User): Promise<boolean> {
+    const current = tokenRef.current;
+    if (!current) return false;
+    try {
+      await api.adminDeleteUser(current, user.id);
+      setAMsg({ kind: "ok", text: `Аккаунт ${user.displayName} удалён` });
+      setAUsers((list) => list.filter((u) => u.id !== user.id));
+      setChats((prev) => prev.filter((c) => c.peer?.id !== user.id));
+      setModal("none");
+      setProfileUser(null);
+      return true;
+    } catch (err) {
+      setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+      return false;
+    }
+  }
+
+  /* --------------------------- рассылка и сервер -------------------------- */
+
+  async function aBroadcast() {
+    const current = tokenRef.current;
+    const text = bcText.trim();
+    if (!current || !text) return;
+    setBcBusy(true);
+    try {
+      const res = await api.adminBroadcast(current, text);
+      setAMsg({ kind: "ok", text: `Рассылка доставлена: ${res.sent} чел.` });
+      setBcText("");
+    } catch (err) {
+      setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+    } finally {
+      setBcBusy(false);
+    }
+  }
+
+  async function aToggleMaintenance(on: boolean) {
+    const current = tokenRef.current;
+    if (!current) return;
+    try {
+      const res = await api.adminMaintenance(current, on);
+      setAStats((s) => (s ? { ...s, maintenance: res.maintenance } : s));
+      setAMsg({
+        kind: "ok",
+        text: on
+          ? "Обслуживание включено: вошли только владельцы"
+          : "Обслуживание завершено, все могут входить",
+      });
+    } catch (err) {
+      setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+    }
+  }
+
+  async function exportUsers() {
+    const current = tokenRef.current;
+    if (!current) return;
+    try {
+      const res = await api.adminUsers(current, "");
+      const blob = new Blob([JSON.stringify(res.users, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `nova-users-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setAMsg({ kind: "ok", text: `Выгружено: ${res.users.length}` });
+    } catch (err) {
+      setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Ошибка" });
+    }
+  }
+
+  function fmtUptime(sec: number): string {
+    const d = Math.floor(sec / 86400);
+    const h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (d > 0) return `${d} д ${h} ч ${m} м`;
+    if (h > 0) return `${h} ч ${m} м`;
+    if (m > 0) return `${m} м ${s} с`;
+    return `${s} с`;
+  }
+
+  /** Фильтр списка людей в панели владельца. */
+  function aFilteredUsers(): User[] {
+    const myId = meRef.current?.id;
+    switch (aFilter) {
+      case "online":
+        return aUsers.filter((u) => u.id === myId || online.has(u.id));
+      case "premium":
+        return aUsers.filter((u) => u.isPremium);
+      case "verified":
+        return aUsers.filter((u) => u.isVerified);
+      case "owner":
+        return aUsers.filter((u) => u.isOwner);
+      case "banned":
+        return aUsers.filter((u) => u.isBanned);
+      default:
+        return aUsers;
+    }
+  }
+
+  /** Счётчик для чипов фильтров. */
+  function aFilterCount(key: typeof aFilter): number {
+    const myId = meRef.current?.id;
+    switch (key) {
+      case "online":
+        return aUsers.filter((u) => u.id === myId || online.has(u.id)).length;
+      case "premium":
+        return aUsers.filter((u) => u.isPremium).length;
+      case "verified":
+        return aUsers.filter((u) => u.isVerified).length;
+      case "owner":
+        return aUsers.filter((u) => u.isOwner).length;
+      case "banned":
+        return aUsers.filter((u) => u.isBanned).length;
+      default:
+        return aUsers.length;
     }
   }
 
@@ -1367,12 +1602,14 @@ export function ChatApp() {
     setConnection("offline");
     setCall({ ...EMPTY_CALL });
     setModal("none");
+    setTab("chats");
     if (typeof window !== "undefined" && isNativeApp()) {
       window.history.replaceState(null, "");
     }
   }
 
   function openChat(id: string) {
+    setTab("chats");
     if (
       typeof window !== "undefined" &&
       isNativeApp() &&
@@ -1743,7 +1980,7 @@ export function ChatApp() {
   }
 
   useEffect(() => {
-    if (modal !== "profile") return;
+    if (tab !== "settings") return;
     const current = tokenRef.current;
     if (!current) return;
     api
@@ -1753,7 +1990,7 @@ export function ChatApp() {
         setBerryTx(r.transactions);
       })
       .catch(() => {});
-  }, [modal]);
+  }, [tab]);
 
   /* -------------------------------- рендер ------------------------------- */
 
@@ -1782,9 +2019,56 @@ export function ChatApp() {
     : -1;
   const canPost = !activeChat || !(activeChat.type === "channel" && activeChat.banned);
   const stickers = me.isPremium ? [...STICKER_IDS, ...PREMIUM_STICKER_IDS] : STICKER_IDS;
+  const totalUnread = chats.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0);
 
   return (
-    <div className={`web-shell ${activeId ? "has-active" : ""}`}>
+    <div className={`web-shell tab-${tab} ${activeId ? "has-active" : ""}`}>
+      {/* ---------- рейка вкладок (десктоп) / нижняя панель (мобайл) ---------- */}
+      <nav className="web-rail" aria-label="Навигация">
+        <button
+          className={`rail-btn ${tab === "chats" ? "on" : ""}`}
+          onClick={() => setTab("chats")}
+        >
+          <span className="rail-ico">
+            <ChatBubble width={21} height={21} />
+            {totalUnread > 0 && (
+              <i className="rail-badge">{totalUnread > 99 ? "99+" : totalUnread}</i>
+            )}
+          </span>
+          <span>Чаты</span>
+        </button>
+        <button
+          className={`rail-btn ${tab === "settings" ? "on" : ""}`}
+          onClick={() => setTab("settings")}
+        >
+          <span className="rail-ico">
+            <Gear width={21} height={21} />
+          </span>
+          <span>Настройки</span>
+        </button>
+        {me.isOwner && (
+          <button
+            className={`rail-btn ${tab === "admin" ? "on" : ""}`}
+            onClick={() => setTab("admin")}
+          >
+            <span className="rail-ico">
+              <Shield width={21} height={21} />
+            </span>
+            <span>Админ</span>
+          </button>
+        )}
+        <span className="rail-spacer" />
+        <button
+          className="rail-avatar"
+          onClick={() => setTab("settings")}
+          title="Профиль"
+        >
+          <Avatar user={me} size={38} />
+        </button>
+      </nav>
+
+      {tab === "chats" && (
+        <>
       <aside className="web-side">
         <header className="web-side-head">
           <span className="brand web-brand">
@@ -1867,7 +2151,7 @@ export function ChatApp() {
           <button
             className="user-row foot-user"
             onClick={() => {
-              setModal("profile");
+              setTab("settings");
               setError(null);
             }}
           >
@@ -1892,7 +2176,7 @@ export function ChatApp() {
             <button
               className="btn btn-ghost btn-owner"
               onClick={() => {
-                setModal("admin");
+                setTab("admin");
                 setError(null);
               }}
               title="Панель владельца"
@@ -1928,11 +2212,18 @@ export function ChatApp() {
               >
                 <ArrowRight width={18} height={18} style={{ transform: "rotate(180deg)" }} />
               </button>
-              <span className="avatar-wrap">
+              <span
+                className={`avatar-wrap${peer ? " p-clickable" : ""}`}
+                title={peer ? "Открыть профиль" : undefined}
+                onClick={() => peer && openProfile(peer)}
+              >
                 <ChatAvatar chat={activeChat} />
                 {peerOnline && <span className="online-dot" />}
               </span>
-              <span className="web-main-title">
+              <span
+                className={`web-main-title${peer ? " p-clickable" : ""}`}
+                onClick={() => peer && openProfile(peer)}
+              >
                 <span className="chat-item-name">
                   {peer && <RoleBadge user={peer} />}
                   {activeChat.title}
@@ -2132,8 +2423,10 @@ export function ChatApp() {
                       <span className="msg-stack">
                         {showSender && (
                           <span
-                            className="msg-sender"
+                            className="msg-sender p-clickable"
                             style={{ color: sender?.avatarColor ?? "#8a93ad" }}
+                            title={sender ? "Открыть профиль" : undefined}
+                            onClick={() => sender && openProfile(sender)}
                           >
                             {sender?.displayName ?? "…"}
                           </span>
@@ -2266,6 +2559,148 @@ export function ChatApp() {
           </>
         )}
       </section>
+        </>
+      )}
+
+      {/* ---------------- вкладка «Настройки» ---------------- */}
+      {tab === "settings" && (
+        <section className="web-panel settings-panel">
+          <header className="web-panel-head">
+            <h2>Настройки</h2>
+            <span className={`conn-badge conn-${connection}`}>
+              {connection === "online"
+                ? "в сети"
+                : connection === "connecting"
+                  ? "подключение…"
+                  : "офлайн"}
+            </span>
+          </header>
+
+          <div className="web-panel-body">
+            <div className="profile-top settings-profile">
+              <Avatar user={me} size={76} />
+              <div>
+                <div className="user-row-name profile-name">
+                  {me.displayName} <RoleBadge user={me} />
+                </div>
+                <div className="user-row-login">@{me.username}</div>
+                {me.phone && (
+                  <div className="user-row-login">
+                    <Phone width={13} height={13} /> {me.phone}
+                  </div>
+                )}
+                {me.isOwner && (
+                  <div className="profile-owner">
+                    Владелец Nova <Crown width={13} height={13} />
+                  </div>
+                )}
+                {me.isPremium && me.premiumUntil && (
+                  <div className="profile-premium">
+                    Premium <Sparkles width={13} height={13} /> до{" "}
+                    {new Date(me.premiumUntil).toLocaleDateString("ru-RU")}
+                  </div>
+                )}
+                <div className="profile-berries">
+                  <GlyphIcon id="star" size={14} /> Баланс: <b>{berries}</b>
+                </div>
+              </div>
+            </div>
+
+            <div className="settings-card">
+              <h3>Профиль</h3>
+              <label className="field">
+                <span>Отображаемое имя</span>
+                <div className="server-settings-row">
+                  <input
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    maxLength={40}
+                  />
+                  <button className="btn btn-primary" onClick={renameMe}>
+                    Сохранить
+                  </button>
+                </div>
+              </label>
+
+              {!me.isPremium && (
+                <div className="settings-row-inline">
+                  <button
+                    className="btn btn-premium"
+                    onClick={buyPremium}
+                    disabled={berries < premiumPrice}
+                  >
+                    Купить Premium за {premiumPrice} <GlyphIcon id="star" size={14} />
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => openTransfer(null)}>
+                    Передать звёзды
+                  </button>
+                  {berries < premiumPrice && (
+                    <p className="auth-hint">
+                      Не хватает {premiumPrice - berries} <GlyphIcon id="star" size={13} />
+                    </p>
+                  )}
+                </div>
+              )}
+              {me.isPremium && (
+                <div className="settings-row-inline">
+                  <button className="btn btn-ghost" onClick={() => openTransfer(null)}>
+                    Передать звёзды
+                  </button>
+                </div>
+              )}
+
+              <details className="server-settings">
+                <summary>История звёзд</summary>
+                <div className="berry-tx-list">
+                  {berryTx.length === 0 && <p className="web-search-note">Пока нет операций</p>}
+                  {berryTx.map((tx) => (
+                    <div key={tx.id} className="berry-tx-row">
+                      <span>
+                        {tx.fromId === me.id ? "→ перевод" : "← получено"}{" "}
+                        <b>
+                          {tx.amount} <GlyphIcon id="star" size={12} />
+                        </b>
+                        {tx.note && <span className="user-row-login"> — {tx.note}</span>}
+                      </span>
+                      <span className="user-row-login">{formatListTime(tx.createdAt)}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+
+            <div className="settings-card">
+              <h3>Скачать приложение</h3>
+              {releases
+                .filter((r) => r.href !== "#")
+                .map((r) => (
+                  <a key={r.id} className="settings-dl-row" href={r.href}>
+                    <span className="user-row-name">Nova для {r.name}</span>
+                    <span className="user-row-login">
+                      {r.requirement} · {r.size}
+                    </span>
+                  </a>
+                ))}
+            </div>
+
+            <div className="settings-card">
+              <h3>О приложении</h3>
+              <div className="settings-info-row">
+                <span>Сервер</span>
+                <code>{API_BASE}</code>
+              </div>
+              <div className="settings-info-row">
+                <span>Версия</span>
+                <b>Nova 2.0</b>
+              </div>
+            </div>
+
+            <button className="btn btn-danger settings-logout" onClick={logout}>
+              Выйти из аккаунта
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* ---------------- модал «Новый чат» ---------------- */}
       {modal === "new" && (
@@ -2488,96 +2923,6 @@ export function ChatApp() {
         </div>
       )}
 
-      {/* ---------------- модал «Профиль» ---------------- */}
-      {modal === "profile" && (
-        <div className="modal-overlay" onClick={() => setModal("none")}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Профиль</h3>
-              <button className="btn btn-ghost btn-close" onClick={() => setModal("none")}>
-                <Close width={14} height={14} />
-              </button>
-            </div>
-            <div className="profile-top">
-              <Avatar user={me} size={72} />
-              <div>
-                <div className="user-row-name profile-name">
-                  {me.displayName} <RoleBadge user={me} />
-                </div>
-                <div className="user-row-login">@{me.username}</div>
-                {me.phone && (
-                  <div className="user-row-login">
-                    <Phone width={13} height={13} /> {me.phone}
-                  </div>
-                )}
-                {me.isOwner && (
-                  <div className="profile-owner">
-                    Владелец Nova <Crown width={13} height={13} />
-                  </div>
-                )}
-                {me.isPremium && me.premiumUntil && (
-                  <div className="profile-premium">
-                    Premium <Sparkles width={13} height={13} /> до{" "}
-                    {new Date(me.premiumUntil).toLocaleDateString("ru-RU")}
-                  </div>
-                )}
-                <div className="profile-berries">
-                  <GlyphIcon id="star" size={14} /> Баланс: <b>{berries}</b>
-                </div>
-              </div>
-            </div>
-
-            <div className="profile-actions">
-              {!me.isPremium && (
-                <>
-                  <button
-                    className="btn btn-premium"
-                    onClick={buyPremium}
-                    disabled={berries < premiumPrice}
-                  >
-                    Купить Premium за {premiumPrice} <GlyphIcon id="star" size={14} />
-                  </button>
-                  {berries < premiumPrice && (
-                    <p className="auth-hint">
-                      Не хватает {premiumPrice - berries} <GlyphIcon id="star" size={13} />
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-
-            <label className="field">
-              <span>Отображаемое имя</span>
-              <div className="server-settings-row">
-                <input value={profileName} onChange={(e) => setProfileName(e.target.value)} maxLength={40} />
-                <button className="btn btn-primary" onClick={renameMe}>
-                  Сохранить
-                </button>
-              </div>
-            </label>
-
-            <details className="server-settings">
-              <summary>История звёзд</summary>
-              <div className="berry-tx-list">
-                {berryTx.length === 0 && <p className="web-search-note">Пока нет операций</p>}
-                {berryTx.map((tx) => (
-                  <div key={tx.id} className="berry-tx-row">
-                    <span>
-                      {tx.fromId === me.id ? "→ перевод" : "← получено"}{" "}
-                      <b>
-                        {tx.amount} <GlyphIcon id="star" size={12} />
-                      </b>
-                      {tx.note && <span className="user-row-login"> — {tx.note}</span>}
-                    </span>
-                    <span className="user-row-login">{formatListTime(tx.createdAt)}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          </div>
-        </div>
-      )}
-
       {/* ---------------- модал «Переслать сообщение» ---------------- */}
       {fwdMsg && (
         <div className="modal-overlay" onClick={() => setFwdMsg(null)}>
@@ -2639,10 +2984,10 @@ export function ChatApp() {
         </div>
       )}
 
-      {/* ---------------- панель владельца ---------------- */}
-      {modal === "admin" && me.isOwner && (
-        <div className="modal-overlay" onClick={() => setModal("none")}>
-          <div className="modal-card admin-card" onClick={(e) => e.stopPropagation()}>
+      {/* ---------------- вкладка «Панель владельца» ---------------- */}
+      {tab === "admin" && me.isOwner && (
+        <section className="web-panel admin-panel">
+          <div className="admin-card">
             <div className="modal-head admin-head">
               <div className="admin-head-info">
                 <span className="admin-shield">
@@ -2653,8 +2998,9 @@ export function ChatApp() {
                   <p className="admin-sub">Права, звёзды и порядок — всё под контролем</p>
                 </div>
               </div>
-              <button className="btn btn-ghost btn-close" onClick={() => setModal("none")}>
+              <button className="btn btn-ghost btn-close" onClick={() => setTab("chats")}>
                 <Close width={14} height={14} />
+                К чатам
               </button>
             </div>
 
@@ -2662,10 +3008,12 @@ export function ChatApp() {
               {(
                 [
                   ["stats", "Статистика"],
-                  ["users", "Пользователи"],
+                  ["users", "Люди"],
+                  ["broadcast", "Рассылка"],
                   ["bots", "Боты"],
                   ["channels", "Каналы"],
                   ["groups", "Группы"],
+                  ["system", "Сервер"],
                 ] as const
               ).map(([key, label]) => (
                 <button
@@ -2707,6 +3055,22 @@ export function ChatApp() {
                     </div>
                   ))}
                 </div>
+                <div className="admin-sys-strip">
+                  <span>версия {aStats.version}</span>
+                  <span>аптайм {fmtUptime(aStats.uptimeSec)}</span>
+                  <span>память {aStats.memoryMB} МБ</span>
+                  <span>WS: {aStats.wsConnections}</span>
+                  <span>запущен {new Date(aStats.startedAt).toLocaleString("ru-RU")}</span>
+                  {aStats.maintenance && <span className="sys-bad">обслуживание</span>}
+                </div>
+                <div className="admin-actions-row">
+                  <button className="btn btn-ghost admin-btn" onClick={() => setATab("system")}>
+                    Управление сервером →
+                  </button>
+                  <button className="btn btn-ghost admin-btn" onClick={exportUsers}>
+                    Выгрузить людей (JSON)
+                  </button>
+                </div>
               </>
             )}
 
@@ -2723,8 +3087,29 @@ export function ChatApp() {
                     placeholder="Поиск по имени или @логину…"
                   />
                 </div>
+                <div className="admin-filters">
+                  {(
+                    [
+                      ["all", "Все"],
+                      ["online", "В сети"],
+                      ["premium", "Premium"],
+                      ["verified", "Галочки"],
+                      ["owner", "Владельцы"],
+                      ["banned", "Бан"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      className={`admin-chip${aFilter === key ? " on" : ""}`}
+                      onClick={() => setAFilter(key)}
+                    >
+                      {label}
+                      <span className="admin-chip-n">{aFilterCount(key)}</span>
+                    </button>
+                  ))}
+                </div>
                 <div className="modal-list admin-list">
-                  {aUsers.map((u) => (
+                  {aFilteredUsers().map((u) => (
                     <div key={u.id} className="admin-row admin-user">
                       <div className="admin-cell-main">
                         <span className="admin-u-av">
@@ -2761,6 +3146,13 @@ export function ChatApp() {
                         </div>
                       </div>
                       <div className="admin-cell-actions">
+                        <button
+                          className="btn btn-ghost admin-btn"
+                          title="Открыть профиль"
+                          onClick={() => openProfile(u)}
+                        >
+                          Профиль
+                        </button>
                         <span className="admin-balance">
                           {u.berries} <GlyphIcon id="star" size={12} />
                         </span>
@@ -2830,7 +3222,9 @@ export function ChatApp() {
                       </div>
                     </div>
                   ))}
-                  {aUsers.length === 0 && <p className="auth-hint">Никого не нашлось</p>}
+                  {aFilteredUsers().length === 0 && (
+                    <p className="auth-hint">Никого не нашлось — попробуй другой фильтр</p>
+                  )}
                 </div>
               </>
             )}
@@ -2952,6 +3346,394 @@ export function ChatApp() {
                   {aChats.length === 0 && <p className="auth-hint">Ничего не нашлось</p>}
                 </div>
               </>
+            )}
+
+            {aTab === "broadcast" && (
+              <>
+                <p className="admin-sub">
+                  Уведомление всплывёт у всех в сети, а копия ляжет в чат Nova каждому
+                  (даже офлайн).
+                </p>
+                <textarea
+                  className="admin-bc-input"
+                  value={bcText}
+                  onChange={(e) => setBcText(e.target.value)}
+                  rows={5}
+                  maxLength={4000}
+                  placeholder="Например: в Nova появились стикеры и звонки — обновись! 🚀"
+                />
+                <div className="admin-actions-row">
+                  <button
+                    className="btn btn-primary"
+                    disabled={bcBusy || !bcText.trim()}
+                    onClick={aBroadcast}
+                  >
+                    {bcBusy
+                      ? "Отправляем…"
+                      : `Отправить всем${aStats ? ` (${aStats.users} чел.)` : ""}`}
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    disabled={!bcText}
+                    onClick={() => setBcText("")}
+                  >
+                    Очистить
+                  </button>
+                  <span className="admin-chip-n">{bcText.length}/4000</span>
+                </div>
+              </>
+            )}
+
+            {aTab === "system" && aStats && (
+              <>
+                <p className="admin-stats-note">
+                  <i className="a-live-dot" aria-hidden="true" /> сервер Nova{" "}
+                  {aStats.version} ·{" "}
+                  {aStats.maintenance ? "на обслуживании" : "работает штатно"}
+                </p>
+                <div className="admin-sys-grid">
+                  <div className="admin-sys-card">
+                    <span className="admin-sys-v">v{aStats.version}</span>
+                    <span className="admin-sys-l">версия API</span>
+                  </div>
+                  <div className="admin-sys-card">
+                    <span className="admin-sys-v">{fmtUptime(aStats.uptimeSec)}</span>
+                    <span className="admin-sys-l">аптайм</span>
+                  </div>
+                  <div className="admin-sys-card">
+                    <span className="admin-sys-v">{aStats.memoryMB} МБ</span>
+                    <span className="admin-sys-l">память процесса</span>
+                  </div>
+                  <div className="admin-sys-card">
+                    <span className="admin-sys-v">{aStats.wsConnections}</span>
+                    <span className="admin-sys-l">WS-соединений</span>
+                  </div>
+                  <div className="admin-sys-card">
+                    <span className="admin-sys-v">{aStats.online}</span>
+                    <span className="admin-sys-l">в сети сейчас</span>
+                  </div>
+                  <div className="admin-sys-card">
+                    <span className="admin-sys-v">
+                      {new Date(aStats.startedAt).toLocaleString("ru-RU")}
+                    </span>
+                    <span className="admin-sys-l">время запуска</span>
+                  </div>
+                </div>
+                <div className="admin-actions-row">
+                  <button
+                    className="btn btn-ghost admin-btn"
+                    onClick={() => {
+                      setAMsg(null);
+                      setATab("stats");
+                    }}
+                  >
+                    Обновить статистику
+                  </button>
+                  <button className="btn btn-ghost admin-btn" onClick={exportUsers}>
+                    Выгрузить людей (JSON)
+                  </button>
+                </div>
+                <div className={`admin-danger-zone${aStats.maintenance ? " on" : ""}`}>
+                  <div className="admin-danger-text">
+                    <b>{aStats.maintenance ? "Обслуживание включено" : "Режим обслуживания"}</b>
+                    <span>
+                      Вход и регистрация — только для владельца, остальные разлогиниваются.
+                    </span>
+                  </div>
+                  <button
+                    className={`btn ${aStats.maintenance ? "btn-primary" : "btn-danger"}`}
+                    onClick={() => aConfirmAction("maintenance", () => aToggleMaintenance(!aStats.maintenance))}
+                  >
+                    {aDanger === "maintenance"
+                      ? aStats.maintenance
+                        ? "Снять режим?"
+                        : "Включить?"
+                      : aStats.maintenance
+                        ? "Снять режим"
+                        : "Включить режим"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* ---------------- баннер объявления (рассылка) ---------------- */}
+      {notice && (
+        <div className="app-notice" role="status">
+          <Megaphone width={16} height={16} />
+          <span>{notice}</span>
+          <button className="app-notice-x" onClick={() => setNotice(null)} aria-label="Скрыть">
+            <Close width={13} height={13} />
+          </button>
+        </div>
+      )}
+
+      {/* ---------------- модал «Профиль пользователя» ---------------- */}
+      {modal === "profile" && profileUser && (
+        <div className="modal-overlay" onClick={() => setModal("none")}>
+          <div className="modal-card profile-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Профиль</h3>
+              <button className="btn btn-ghost btn-close" onClick={() => setModal("none")}>
+                <Close width={14} height={14} />
+                Закрыть
+              </button>
+            </div>
+
+            <div className="profile-hero">
+              <Avatar user={profileUser} size={84} />
+              <div className="profile-hero-text">
+                <span className="profile-name">
+                  {profileUser.displayName}
+                  <RoleBadge user={profileUser} />
+                  {profileUser.isBanned && (
+                    <span className="badge badge-ban" title="Заблокирован">
+                      <Ban width={14} height={14} />
+                    </span>
+                  )}
+                </span>
+                <span className="profile-username">@{profileUser.username}</span>
+                <span
+                  className={`profile-status${
+                    profileInfo?.online || profileUser.id === me.id ? " on" : ""
+                  }`}
+                >
+                  {profileBusy
+                    ? "загружаем…"
+                    : profileInfo?.online || profileUser.id === me.id
+                      ? "в сети"
+                      : formatLastSeen(profileUser.lastSeenAt)}
+                </span>
+              </div>
+            </div>
+
+            {profileErr && <p className="admin-msg err">{profileErr}</p>}
+
+            <div className="profile-grid">
+              <div className="profile-field">
+                <span>Телефон</span>
+                <em>{profileUser.phone ?? "скрыт"}</em>
+              </div>
+              <div className="profile-field">
+                <span>В Nova с</span>
+                <em>{new Date(profileUser.createdAt).toLocaleDateString("ru-RU")}</em>
+              </div>
+              <div className="profile-field">
+                <span>Premium</span>
+                <em>
+                  {profileUser.isPremium
+                    ? profileUser.premiumUntil
+                      ? `до ${new Date(profileUser.premiumUntil).toLocaleDateString("ru-RU")}`
+                      : "включён"
+                    : "нет"}
+                </em>
+              </div>
+              <div className="profile-field">
+                <span>Общих чатов</span>
+                <em>{profileInfo ? profileInfo.sharedChats : "—"}</em>
+              </div>
+              {me.isOwner && (
+                <>
+                  <div className="profile-field">
+                    <span>Звёзды</span>
+                    <em>{profileUser.berries}</em>
+                  </div>
+                  <div className="profile-field">
+                    <span>Сообщений</span>
+                    <em>{profileDetail?.messagesSent ?? profileInfo?.messagesSent ?? "—"}</em>
+                  </div>
+                  <div className="profile-field">
+                    <span>Переводов</span>
+                    <em>{profileDetail?.transfers ?? "—"}</em>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="profile-actions">
+              <button className="btn btn-primary" onClick={() => startChat(profileUser)}>
+                <ChatBubble width={16} height={16} />
+                Написать
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setTransferTo(profileUser);
+                  setTransferAmount("");
+                  setTransferNote("");
+                  setModal("transfer");
+                }}
+              >
+                <Star width={16} height={16} />
+                Передать звёзды
+              </button>
+            </div>
+
+            {me.isOwner && profileDetail && profileDetail.chats.length > 0 && (
+              <div className="profile-chats">
+                <b>Его чаты · {profileDetail.chats.length}</b>
+                <div className="profile-chats-list">
+                  {profileDetail.chats.map((c) => (
+                    <span key={c.id} className="admin-chip">
+                      {c.type === "group"
+                        ? "группа"
+                        : c.type === "channel"
+                          ? "канал"
+                          : c.type === "saved"
+                            ? "избранное"
+                            : "лс"}
+                      · {c.title}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {me.isOwner && profileUser.id !== me.id && (
+              <div className="profile-owner">
+                <div className="profile-owner-head">
+                  <Shield width={15} height={15} />
+                  Управление (владелец)
+                </div>
+                <div className="profile-actions profile-acts">
+                  <input
+                    className="admin-amount"
+                    type="number"
+                    min={1}
+                    value={aAmounts[profileUser.id] ?? "10"}
+                    onChange={(e) =>
+                      setAAmounts((m) => ({ ...m, [profileUser.id]: e.target.value }))
+                    }
+                    title="Сколько звёзд выдать или забрать"
+                  />
+                  <button
+                    className="btn btn-ghost admin-btn"
+                    title={`Выдать ${aAmount(profileUser.id)} звёзд`}
+                    onClick={async () => {
+                      const u = await aBerries(profileUser, aAmount(profileUser.id));
+                      if (u) {
+                        setProfileUser(u);
+                        void refreshProfile();
+                      }
+                    }}
+                  >
+                    +<GlyphIcon id="star" size={13} />
+                  </button>
+                  <button
+                    className="btn btn-ghost admin-btn"
+                    title={`Забрать ${aAmount(profileUser.id)} звёзд`}
+                    onClick={async () => {
+                      const u = await aBerries(profileUser, -aAmount(profileUser.id));
+                      if (u) {
+                        setProfileUser(u);
+                        void refreshProfile();
+                      }
+                    }}
+                  >
+                    −<GlyphIcon id="star" size={13} />
+                  </button>
+                  <button
+                    className={`btn btn-ghost admin-btn${profileUser.isPremium ? " on" : ""}`}
+                    title={profileUser.isPremium ? "Убрать Premium" : "Выдать Premium"}
+                    onClick={async () => {
+                      const u = await aPremium(profileUser, !profileUser.isPremium);
+                      if (u) {
+                        setProfileUser(u);
+                        void refreshProfile();
+                      }
+                    }}
+                  >
+                    <Sparkles width={15} height={15} />
+                  </button>
+                  <button
+                    className={`btn btn-ghost admin-btn admin-verify${
+                      profileUser.isVerified ? " on" : ""
+                    }`}
+                    title={profileUser.isVerified ? "Снять галочку" : "Выдать галочку"}
+                    onClick={async () => {
+                      const u = await aVerify(profileUser, !profileUser.isVerified);
+                      if (u) {
+                        setProfileUser(u);
+                        void refreshProfile();
+                      }
+                    }}
+                  >
+                    <Check width={15} height={15} />
+                  </button>
+                  <button
+                    className={`btn btn-ghost admin-btn admin-owner${
+                      profileUser.isOwner ? " on" : ""
+                    }`}
+                    title={profileUser.isOwner ? "Снять владельца" : "Сделать владельцем"}
+                    disabled={!!profileUser.isBot}
+                    onClick={async () => {
+                      const u = await aOwner(profileUser, !profileUser.isOwner);
+                      if (u) {
+                        setProfileUser(u);
+                        void refreshProfile();
+                      }
+                    }}
+                  >
+                    <Shield width={15} height={15} />
+                  </button>
+                  <button
+                    className={`btn btn-ghost admin-btn${profileUser.isBanned ? " on" : ""}`}
+                    title={profileUser.isBanned ? "Разбанить" : "Заблокировать"}
+                    disabled={profileUser.isOwner || !!profileUser.isBot}
+                    onClick={async () => {
+                      const u = await aBan(profileUser, !profileUser.isBanned);
+                      if (u) {
+                        setProfileUser(u);
+                        void refreshProfile();
+                      }
+                    }}
+                  >
+                    <Ban width={15} height={15} />
+                  </button>
+                </div>
+
+                {!profileUser.isBot && (
+                  <div className="profile-reset">
+                    <input
+                      className="web-search-input"
+                      type="text"
+                      value={pResetPass}
+                      onChange={(e) => setPResetPass(e.target.value)}
+                      placeholder="Новый пароль (мин. 6 символов)"
+                    />
+                    <button
+                      className="btn btn-ghost admin-btn"
+                      disabled={pResetPass.length < 6}
+                      onClick={() =>
+                        aConfirmAction(`pass-${profileUser.id}`, async () => {
+                          await aResetPassword(profileUser, pResetPass);
+                        })
+                      }
+                    >
+                      {aDanger === `pass-${profileUser.id}`
+                        ? "Точно сбросить?"
+                        : "Сбросить пароль"}
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  className={`btn btn-danger profile-del${
+                    aDanger === `del-${profileUser.id}` ? " on" : ""
+                  }`}
+                  onClick={() =>
+                    aConfirmAction(`del-${profileUser.id}`, async () => {
+                      await aDeleteUser(profileUser);
+                    })
+                  }
+                >
+                  {aDanger === `del-${profileUser.id}`
+                    ? "Точно удалить аккаунт навсегда?"
+                    : "Удалить аккаунт"}
+                </button>
+              </div>
             )}
           </div>
         </div>

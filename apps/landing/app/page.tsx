@@ -13,6 +13,7 @@ import { DownloadButton } from "@/components/DownloadButton";
 import { Accordion } from "@/components/Accordion";
 import { AppMock } from "@/components/AppMock";
 import { Effects } from "@/components/Effects";
+import { Showcase } from "@/components/Showcase";
 
 export default function HomePage() {
   return (
@@ -32,6 +33,7 @@ export default function HomePage() {
           <nav className="nav-links">
             <a href="#download">Скачать</a>
             <a href="#features">Возможности</a>
+            <a href="#app">Приложение</a>
             <a href="#compare">Сравнение</a>
             <a href="#faq">Вопросы</a>
             <a href={site.github} target="_blank" rel="noreferrer">
@@ -183,6 +185,21 @@ export default function HomePage() {
               );
             })}
           </div>
+        </section>
+
+        {/* ---------------- ПРИЛОЖЕНИЕ ИЗНУТРИ ---------------- */}
+        <section className="section container" id="app">
+          <div className="section-head">
+            <span className="eyebrow reveal">Приложение</span>
+            <h2 className="reveal">
+              Загляни <span className="gradient-text">изнутри</span>
+            </h2>
+            <p className="lead reveal">
+              Три вкладки — и всё управление мессенджера под рукой. Переключай и
+              смотри, как устроена Nova.
+            </p>
+          </div>
+          <Showcase />
         </section>
 
         {/* ---------------- СРАВНЕНИЕ ---------------- */}

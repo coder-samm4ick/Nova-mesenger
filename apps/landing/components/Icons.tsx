@@ -359,6 +359,24 @@ export function Search(p: P) {
   );
 }
 
+export function ChatBubble(p: P) {
+  return (
+    <svg {...base(p)}>
+      <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H5.2L3 22l1.3-3.6A8.5 8.5 0 1 1 21 11.5Z" />
+      <path d="M8.5 11h.01M12 11h.01M15.5 11h.01" />
+    </svg>
+  );
+}
+
+export function Gear(p: P) {
+  return (
+    <svg {...base(p)}>
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M19.1 14.2a1.5 1.5 0 0 0 .3 1.7l.1.1a1.8 1.8 0 1 1-2.6 2.6l-.1-.1a1.5 1.5 0 0 0-2.6 1.1v.3a1.8 1.8 0 1 1-3.6 0v-.2a1.5 1.5 0 0 0-2.7-1.1l-.1.1a1.8 1.8 0 1 1-2.6-2.6l.1-.1a1.5 1.5 0 0 0-1.1-2.6h-.2a1.8 1.8 0 1 1 0-3.6h.2a1.5 1.5 0 0 0 1.1-2.7l-.1-.1a1.8 1.8 0 1 1 2.6-2.6l.1.1a1.5 1.5 0 0 0 1.7.3h.1a1.5 1.5 0 0 0 .9-1.4v-.2a1.8 1.8 0 1 1 3.6 0v.2a1.5 1.5 0 0 0 2.6 1.1l.1-.1a1.8 1.8 0 1 1 2.6 2.6l-.1.1a1.5 1.5 0 0 0 1.1 2.6h.2a1.8 1.8 0 1 1 0 3.6h-.2a1.5 1.5 0 0 0-1.4.9Z" />
+    </svg>
+  );
+}
+
 export const platformIcons = {
   windows: Windows,
   macos: Apple,
@@ -376,4 +394,11 @@ export const featureIcons = {
   bot: Bot,
   devices: Devices,
   sparkles: Sparkles,
+  star: Star,
+  smile: Smile,
+  shield: Shield,
+  search: Search,
+  reply: Reply,
+  chat: ChatBubble,
+  crown: Crown,
 } as const;

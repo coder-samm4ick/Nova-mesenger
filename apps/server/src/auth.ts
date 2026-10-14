@@ -50,3 +50,10 @@ export function userIdFromToken(token: string | undefined | null): string | null
 export function destroySession(token: string): void {
   sessions.delete(token);
 }
+
+/** Полный выход: удаляет все активные сессии пользователя. */
+export function destroyUserSessions(userId: string): void {
+  for (const [token, id] of sessions.entries()) {
+    if (id === userId) sessions.delete(token);
+  }
+}

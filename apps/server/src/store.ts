@@ -68,7 +68,23 @@ type DbSnapshot = {
   readCursors?: { chatId: string; userId: string; messageId: string }[];
   uploadedFiles?: PhotoAttachment[];
   berryTransactions?: BerryTx[];
+  meta?: { maintenance?: boolean };
 };
+
+/**
+ * Служебное состояние сервера. `maintenance` — режим обслуживания: вход и
+ * регистрация доступны только владельцу.
+ */
+const meta = { maintenance: false, startedAt: Date.now() };
+
+export function serverMeta(): { maintenance: boolean; startedAt: number } {
+  return { maintenance: meta.maintenance, startedAt: meta.startedAt };
+}
+
+export function setMaintenance(on: boolean): void {
+  meta.maintenance = on;
+  save();
+}
 
 /** Путь к db.json: рядом с src/ в папке data, либо NOVA_DATA_FILE. */
 function dataFile(): string {
@@ -95,6 +111,7 @@ function save(): void {
       ),
       uploadedFiles: [...uploadedFiles.values()],
       berryTransactions,
+      meta: { maintenance: meta.maintenance },
     };
     writeFileSync(file, JSON.stringify(snapshot, null, 2), "utf8");
   } catch (err) {
@@ -230,6 +247,9 @@ function load(): void {
   }
   for (const tx of parsed?.berryTransactions ?? []) {
     if (tx?.id && tx?.fromId && tx?.toId) berryTransactions.push(tx);
+  }
+  if (parsed?.meta && typeof parsed.meta.maintenance === "boolean") {
+    meta.maintenance = parsed.meta.maintenance;
   }
 }
 
@@ -387,6 +407,19 @@ export function updateUser(
   const user = users.get(userId);
   if (!user) return null;
   const next: StoredUser = { ...user, ...patch };
+  users.set(userId, next);
+  save();
+  return next;
+}
+
+export function setUserPassword(
+  userId: string,
+  passwordHash: string,
+  salt: string
+): StoredUser | null {
+  const user = users.get(userId);
+  if (!user) return null;
+  const next: StoredUser = { ...user, passwordHash, salt };
   users.set(userId, next);
   save();
   return next;
@@ -826,6 +859,38 @@ export function messageCount(): number {
   let n = 0;
   for (const list of messagesByChat.values()) n += list.length;
   return n;
+}
+
+/** Полное удаление пользователя (включая ботов): чаты, аккаунт, индексы. */
+export function deleteUser(userId: string): boolean {
+  const user = users.get(userId);
+  if (!user) return false;
+  for (const chat of [...chats.values()]) {
+    if (chat.memberIds.includes(userId)) deleteChat(chat.id);
+  }
+  users.delete(userId);
+  usernames.delete(user.username);
+  if (user.phone) phones.delete(user.phone);
+  save();
+  return true;
+}
+
+/** Сколько сообщений написал пользователь (для карточки в админке). */
+export function userMessageCount(userId: string): number {
+  let n = 0;
+  for (const list of messagesByChat.values()) {
+    for (const m of list) if (m.senderId === userId) n += 1;
+  }
+  return n;
+}
+
+/** Ищет сообщение по id среди всех чатов (модерация владельца). */
+export function findChatByMessage(messageId: string): { chatId: string; message: Message } | null {
+  for (const [chatId, list] of messagesByChat.entries()) {
+    const found = list.find((m) => m.id === messageId);
+    if (found) return { chatId, message: found };
+  }
+  return null;
 }
 
 export function uploadCount(): number {
