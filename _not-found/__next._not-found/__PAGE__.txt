@@ -1,0 +1,29 @@
+1:"$Sreact.fragment"
+2:"/Nova-mesenger/_next/static/chunks/0umf92h1sb77c.js"
+3:I[39756,["$2"],"default"]
+4:I[37457,["$2"],"default"]
+5:"/Nova-mesenger/_next/static/chunks/0wivj_1w5sglo.js"
+6:I[42607,["$2","$5"],"DownloadButton"]
+d:I[97367,["$2"],"OutletBoundary"]
+e:"$Sreact.suspense"
+11:"ViewportBoundary"
+12:I[97367,["$2"],"$11"]
+13:"MetadataBoundary"
+14:I[97367,["$2"],"$13"]
+15:I[27201,["$2"],"IconMark"]
+:HL["/Nova-mesenger/_next/static/chunks/0u2twin74rir-.css","style"]
+8:X
+b:X
+b:C
+c:[["children",{"s":"__PAGE__","h":160,"d":{"r":["$","$1","c",{"children":[["$","main",null,{"className":"container","style":{"minHeight":"100vh","display":"grid","placeItems":"center","padding":"64px 24px","textAlign":"center"},"children":["$","div",null,{"style":{"maxWidth":520},"children":[["$","div",null,{"className":"gradient-text","style":{"fontSize":"clamp(72px, 16vw, 140px)","fontWeight":800,"lineHeight":1},"children":"404"}],["$","h1",null,{"style":{"fontSize":28,"marginBottom":12},"children":"Страница не найдена"}],["$","p",null,{"className":"lead","style":{"marginBottom":30},"children":["Похоже, эта ссылка потерялась. Давай вернём тебя к ","Nova","."]}],["$","div",null,{"style":{"display":"flex","gap":14,"justifyContent":"center","flexWrap":"wrap"},"children":[["$","a",null,{"className":"btn btn-primary btn-lg","href":"/","children":["На главную",["$","svg",null,{"width":18,"height":18,"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","strokeWidth":1.8,"strokeLinecap":"round","strokeLinejoin":"round","children":[["$","path",null,{"d":"M5 12h14"}],["$","path",null,{"d":"m13 6 6 6-6 6"}]]}]]}],["$","$L6",null,{"size":"sm","showDropdown":false}]]}]]}]}],[["$","script","script-0",{"src":"/Nova-mesenger/_next/static/chunks/0wivj_1w5sglo.js","async":true}]],["$","$Ld",null,{"children":["$","$e",null,{"name":"Next.MetadataOutlet","children":"$@f"}]}]]}],"p":"$@10","v":null,"s":"$8"}}]]
+9:[["children",{"s":"/_not-found","h":96,"d":{"r":["$","$1","c",{"children":[null,["$","$L3",null,{"parallelRouterKey":"children","template":["$","$L4",null,{}]}]]}],"p":"$@a","v":"$b","s":"$8"},"c":"$Qc"}]]
+0:{"t":{"t":{"s":"","h":80,"d":{"r":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/Nova-mesenger/_next/static/chunks/0u2twin74rir-.css","precedence":"next"}],["$","script","script-0",{"src":"/Nova-mesenger/_next/static/chunks/0umf92h1sb77c.js","async":true}]],["$","html",null,{"lang":"ru","children":["$","body",null,{"children":["$","$L3",null,{"parallelRouterKey":"children","template":["$","$L4",null,{}],"notFound":[["$","main",null,{"className":"container","style":{"minHeight":"100vh","display":"grid","placeItems":"center","padding":"64px 24px","textAlign":"center"},"children":["$","div",null,{"style":{"maxWidth":520},"children":[["$","div",null,{"className":"gradient-text","style":{"fontSize":"clamp(72px, 16vw, 140px)","fontWeight":800,"lineHeight":1},"children":"404"}],["$","h1",null,{"style":{"fontSize":28,"marginBottom":12},"children":"Страница не найдена"}],["$","p",null,{"className":"lead","style":{"marginBottom":30},"children":["Похоже, эта ссылка потерялась. Давай вернём тебя к ","Nova","."]}],["$","div",null,{"style":{"display":"flex","gap":14,"justifyContent":"center","flexWrap":"wrap"},"children":[["$","a",null,{"className":"btn btn-primary btn-lg","href":"/","children":["На главную",["$","svg",null,{"width":18,"height":18,"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","strokeWidth":1.8,"strokeLinecap":"round","strokeLinejoin":"round","children":[["$","path",null,{"d":"M5 12h14"}],["$","path",null,{"d":"m13 6 6 6-6 6"}]]}]]}],["$","$L6",null,{"size":"sm","showDropdown":false}]]}]]}]}],[]]}]}]}]]}],"p":"$@7","v":null,"s":"$8"},"c":"$Q9"},"h":{"r":["$","$1","h",{"children":[["$","meta",null,{"name":"robots","content":"noindex"}],["$","$L12",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1, viewport-fit=cover"}],["$","meta","2",{"name":"theme-color","content":"#05070f"}]]}],["$","$L14",null,{"children":[["$","div",null,{"hidden":true,"children":["$","$e",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"Nova — Мессенджер нового поколения"}],["$","meta","1",{"name":"description","content":"Nova — быстрый, безопасный и красивый мессенджер для компьютера и телефона. Сквозное шифрование, файлы до 4 ГБ, звонки и группы без ограничений."}],["$","meta","2",{"name":"application-name","content":"Nova"}],["$","meta","3",{"name":"keywords","content":"мессенджер,чат,nova,скачать мессенджер,шифрование,звонки,кроссплатформенный"}],["$","meta","4",{"property":"og:title","content":"Nova — Мессенджер нового поколения"}],["$","meta","5",{"property":"og:description","content":"Nova — быстрый, безопасный и красивый мессенджер для компьютера и телефона. Сквозное шифрование, файлы до 4 ГБ, звонки и группы без ограничений."}],["$","meta","6",{"property":"og:url","content":"https://nova.chat/"}],["$","meta","7",{"property":"og:site_name","content":"Nova"}],["$","meta","8",{"property":"og:type","content":"website"}],["$","meta","9",{"name":"twitter:card","content":"summary_large_image"}],["$","meta","10",{"name":"twitter:title","content":"Nova — Мессенджер нового поколения"}],["$","meta","11",{"name":"twitter:description","content":"Nova — быстрый, безопасный и красивый мессенджер для компьютера и телефона. Сквозное шифрование, файлы до 4 ГБ, звонки и группы без ограничений."}],["$","link","12",{"rel":"icon","href":"/favicon.svg"}],["$","$L15","13",{}]]}]}],null]}],null]}],"p":"$@16","v":null,"s":"$8"}},"a":"$@17","u":"$@18","b":"v2qFiwFxmzuw098flZLTn"}
+f:null
+8:300
+18:true
+8:C
+17:0
+a:"$undefined"
+7:"$undefined"
+16:"$undefined"
+10:"$undefined"
