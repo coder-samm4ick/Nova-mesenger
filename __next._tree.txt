@@ -1,3 +1,3 @@
-:HL["/Nova-mesenger/_next/static/chunks/0h11z4mpnhdze.css","style"]
+:HL["/Nova-mesenger/_next/static/chunks/24azpuzcd4hm7.css","style"]
 1:[["children",{"s":"__PAGE__","h":160}]]
-0:{"b":"1ky4Pb7eqMMwWomjdPqpN","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
+0:{"b":"PtTjnD2prQ8yXieHG0whh","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
