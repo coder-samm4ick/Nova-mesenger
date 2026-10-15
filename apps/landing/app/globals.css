@@ -5088,13 +5088,19 @@ tbody tr:hover {
   --bg: #000000;
   --bg-soft: #050608;
 }
-html,
-body {
+html {
   background: #000000;
 }
-html[data-shell="app"],
-html[data-shell="app"] body {
+/* Фон html прокидывается на общий холст, а body делаем прозрачным:
+   непрозрачный body перекрывает слои с z-index < 0 (3D-сцену и свечения). */
+body {
+  background: transparent;
+}
+html[data-shell="app"] {
   background: #000000;
+}
+html[data-shell="app"] body {
+  background: transparent;
 }
 .nav {
   background: rgba(0, 0, 0, 0.72);
