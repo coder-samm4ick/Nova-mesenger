@@ -1395,6 +1395,12 @@ app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/ban", async (
 
 /* --- подарки: управление каталогом --- */
 
+app.get("/api/admin/gifts", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  return { gifts: store.listGiftCatalog() };
+});
+
 app.post("/api/admin/gifts", async (request, reply) => {
   const auth = ownerAuth(request, reply);
   if (!auth) return;
