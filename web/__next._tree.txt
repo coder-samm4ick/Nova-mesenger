@@ -1,4 +1,4 @@
-:HL["/Nova-mesenger/_next/static/chunks/0-e2exiybxquj.css","style"]
+:HL["/Nova-mesenger/_next/static/chunks/0h11z4mpnhdze.css","style"]
 2:[["children",{"s":"__PAGE__","h":160}]]
 1:[["children",{"s":"web","h":96,"c":"$Q2"}]]
-0:{"b":"Om5N0h9I1oQrH3wsqWNKK","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
+0:{"b":"1ky4Pb7eqMMwWomjdPqpN","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
