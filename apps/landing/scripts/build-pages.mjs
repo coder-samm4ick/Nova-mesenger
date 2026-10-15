@@ -14,7 +14,7 @@ if (process.env.NOVA_BASE_PATH === undefined) {
 }
 
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,3 +40,8 @@ execFileSync(process.execPath, [join(appDir, "scripts", "fix-pages-paths.mjs")],
   cwd: appDir,
   stdio: "inherit",
 });
+
+// GitHub Pages по умолчанию прогоняет сайт через Jekyll и съедает каталоги,
+// начинающиеся с подчёркивания (_next). Пустой .nojekyll отключает обработку.
+writeFileSync(join(appDir, "out", ".nojekyll"), "");
+console.log("Создан out/.nojekyll (Jekyll отключён)");

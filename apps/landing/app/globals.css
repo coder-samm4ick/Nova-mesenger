@@ -5081,3 +5081,27 @@ tbody tr:hover {
   width: fit-content;
   margin: 4px 0;
 }
+
+
+/* ============ ЧИСТО ЧЁРНЫЙ ФОН ============ */
+:root {
+  --bg: #000000;
+  --bg-soft: #050608;
+}
+html,
+body {
+  background: #000000;
+}
+html[data-shell="app"],
+html[data-shell="app"] body {
+  background: #000000;
+}
+.nav {
+  background: rgba(0, 0, 0, 0.72);
+}
+.nav.scrolled {
+  background: rgba(0, 0, 0, 0.88);
+}
+::-webkit-scrollbar-track {
+  background: #000000;
+}
