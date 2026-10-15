@@ -6,12 +6,15 @@
 import type {
   AdminChatView,
   AdminLog,
+  AdminSession,
   AdminStats,
   AdminUserDetail,
+  BackupInfo,
   BerryTx,
   ChatView,
   CollectorInfo,
   DayStat,
+  ExtendedAnalytics,
   GiftCatalogItem,
   Message,
   PhotoAttachment,
@@ -318,10 +321,10 @@ export const api = {
       { method: "POST", token, body: { owner } }
     ),
 
-  adminBan: (token: string, userId: string, ban: boolean) =>
+  adminBan: (token: string, userId: string, ban: boolean, reason = "", minutes = 0) =>
     request<{ user: User }>(
       `/api/admin/users/${encodeURIComponent(userId)}/ban`,
-      { method: "POST", token, body: { ban } }
+      { method: "POST", token, body: { ban, reason, minutes } }
     ),
 
   adminVerify: (token: string, userId: string, verify: boolean) =>
@@ -436,9 +439,9 @@ export const api = {
       method: "POST", token, body: { status },
     }),
 
-  adminMute: (token: string, userId: string, minutes: number) =>
+  adminMute: (token: string, userId: string, minutes: number, reason = "") =>
     request<{ user: User }>(`/api/admin/users/${encodeURIComponent(userId)}/mute`, {
-      method: "POST", token, body: { minutes },
+      method: "POST", token, body: { minutes, reason },
     }),
 
   adminShadowban: (token: string, userId: string, on: boolean) =>
@@ -476,4 +479,105 @@ export const api = {
 
   adminEconomy: (token: string) =>
     request<{ transactions: BerryTx[]; total: number }>("/api/admin/economy", { token }),
+
+  /* --------------- админ: сессии, массовое, бэкапы, аналитика -------------- */
+
+  /** Полные настройки сервера (только владелец). */
+  adminSettings: (token: string) =>
+    request<{ settings: ServerSettings }>("/api/admin/settings", { token }),
+
+  /** Активные сессии пользователя: когда, откуда, из какого браузера. */
+  adminSessions: (token: string, userId: string) =>
+    request<{ sessions: AdminSession[] }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/sessions`,
+      { token }
+    ),
+
+  adminRevokeSession: (token: string, userId: string, sessionToken: string) =>
+    request<{ ok: boolean }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/sessions/revoke`,
+      { method: "POST", token, body: { token: sessionToken } }
+    ),
+
+  /** Выйти со всех устройств пользователя. */
+  adminLogoutAll: (token: string, userId: string) =>
+    request<{ ok: boolean }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/logout-all`,
+      { method: "POST", token, body: {} }
+    ),
+
+  /** Режим «войти как этот пользователь»: возвращает временный токен. */
+  adminImpersonate: (token: string, userId: string) =>
+    request<{ token: string; user: User }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/impersonate`,
+      { method: "POST", token, body: {} }
+    ),
+
+  /** Массовое удаление сообщений по фильтру (чат / автор / раньше времени). */
+  adminMassDelete: (
+    token: string,
+    filter: { chatId?: string; senderId?: string; before?: number }
+  ) =>
+    request<{ removed: number }>("/api/admin/messages/mass-delete", {
+      method: "POST",
+      token,
+      body: filter,
+    }),
+
+  /** Массовые начисления/списания звёзд. */
+  adminRewardsMass: (
+    token: string,
+    payload: { userIds?: string[]; all?: boolean; amount: number; reason?: string }
+  ) =>
+    request<{ updated: number; amount: number }>("/api/admin/rewards/mass", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
+
+  adminBackups: (token: string) =>
+    request<{ backups: BackupInfo[] }>("/api/admin/backups", { token }),
+
+  adminBackupCreate: (token: string) =>
+    request<{ backup: BackupInfo }>("/api/admin/backup", {
+      method: "POST",
+      token,
+      body: {},
+    }),
+
+  adminBackupRestore: (token: string, name: string) =>
+    request<{ ok: boolean }>("/api/admin/backups/restore", {
+      method: "POST",
+      token,
+      body: { name },
+    }),
+
+  adminCacheClear: (token: string) =>
+    request<{ ok: boolean; cleared: number }>("/api/admin/cache/clear", {
+      method: "POST",
+      token,
+      body: {},
+    }),
+
+  /** DAU/WAU/MAU, воронка, удержание, тепловая карта активности. */
+  adminAnalyticsExtended: (token: string) =>
+    request<ExtendedAnalytics>("/api/admin/analytics/extended", { token }),
+
+  /** Выгрузка пользователей текстом (JSON или CSV) для скачивания. */
+  adminExportText: async (token: string, format: "json" | "csv" = "json") => {
+    const res = await fetch(`${API_BASE}/api/admin/export?format=${format}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = `Ошибка ${res.status}`;
+      try {
+        msg = (JSON.parse(text) as { error?: string }).error ?? msg;
+      } catch {
+        /* не JSON — оставляем статус */
+      }
+      throw new Error(msg);
+    }
+    return text;
+  },
 };

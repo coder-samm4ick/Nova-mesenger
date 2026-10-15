@@ -899,7 +899,7 @@ app.get("/api/admin/users", async (request, reply) => {
     .filter((u) => !q || u.username.includes(q) || u.displayName.toLowerCase().includes(q))
     .sort((a, b) => a.createdAt - b.createdAt)
     .slice(0, 200)
-    .map((u) => store.toPublicUser(u));
+    .map((u) => store.toAdminUser(u));
   return { users };
 });
 
@@ -916,7 +916,7 @@ app.post<{ Params: { userId: string } }>(
     if (!user) return reply.code(404).send({ error: "Пользователь не найден" });
     const updated = store.addBerries(user.id, raw as number);
     if (updated) sendToUser(updated.id, { type: "berries", berries: updated.berries });
-    return { user: store.toPublicUser(updated ?? user) };
+    return { user: store.toAdminUser(updated ?? user) };
   }
 );
 
@@ -935,7 +935,7 @@ app.post<{ Params: { userId: string } }>(
     if (updated) {
       broadcastUserUpdated(updated.id);
     }
-    return { user: store.toPublicUser(updated ?? user) };
+    return { user: store.toAdminUser(updated ?? user) };
   }
 );
 
@@ -960,7 +960,7 @@ app.post<{ Params: { userId: string } }>(
     if (updated) {
       broadcastUserUpdated(updated.id);
     }
-    return { user: store.toPublicUser(updated ?? user) };
+    return { user: store.toAdminUser(updated ?? user) };
   }
 );
 
@@ -976,7 +976,7 @@ app.post<{ Params: { userId: string } }>(
     if (updated) {
       broadcastUserUpdated(updated.id);
     }
-    return { user: store.toPublicUser(updated ?? user) };
+    return { user: store.toAdminUser(updated ?? user) };
   }
 );
 
@@ -1053,7 +1053,7 @@ app.get<{ Params: { userId: string } }>(
           c.memberIds.includes(user.id)
       ).length;
     return {
-      user: store.toPublicUser(user),
+      user: auth.user.isOwner ? store.toAdminUser(user) : store.toPublicUser(user),
       online: connectedUserIds().includes(user.id),
       sharedChats,
       messagesSent: auth.user.isOwner ? store.userMessageCount(user.id) : undefined,
@@ -1074,7 +1074,7 @@ app.get<{ Params: { userId: string } }>(
       .filter((c) => c.memberIds.includes(user.id))
       .slice(0, 30);
     return {
-      user: store.toPublicUser(user),
+      user: store.toAdminUser(user),
       online: connectedUserIds().includes(user.id),
       messagesSent: store.userMessageCount(user.id),
       transfers: store.getBerryTransactions(user.id, 500).length,
@@ -1342,12 +1342,14 @@ app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/mute", async 
   const auth = ownerAuth(request, reply);
   if (!auth) return;
   const minutes = Number((request.body as { minutes?: unknown })?.minutes ?? 0);
+  const reason = (asString((request.body as { reason?: unknown })?.reason) ?? "").trim().slice(0, 200);
   const until = minutes > 0 ? Date.now() + minutes * 60_000 : undefined;
   const updated = store.updateUser(request.params.userId, { mutedUntil: until });
   if (!updated) return reply.code(404).send({ error: "Пользователь не найден" });
   store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName,
-    action: until ? "user.mute" : "user.unmute", targetType: "user", targetId: updated.id, meta: minutes ? `${minutes} мин` : "навсегда" });
-  return { user: store.toPublicUser(updated) };
+    action: until ? "user.mute" : "user.unmute", targetType: "user", targetId: updated.id,
+    meta: `${minutes ? `${minutes} мин` : "навсегда"}${reason ? ` (${reason})` : ""}` });
+  return { user: store.toAdminUser(updated) };
 });
 
 app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/shadowban", async (request, reply) => {
@@ -1362,7 +1364,7 @@ app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/shadowban", a
   if (!updated) return reply.code(404).send({ error: "Пользователь не найден" });
   store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName,
     action: on ? "user.shadowban" : "user.unshadowban", targetType: "user", targetId: updated.id });
-  return { user: store.toPublicUser(updated) };
+  return { user: store.toAdminUser(updated) };
 });
 
 app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/ban", async (request, reply) => {
@@ -1388,7 +1390,7 @@ app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/ban", async (
   if (updated) broadcastUserUpdated(updated.id);
   store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName,
     action: ban ? "user.ban" : "user.unban", targetType: "user", targetId: userId, meta: reason || undefined });
-  return { user: store.toPublicUser(updated ?? user) };
+  return { user: store.toAdminUser(updated ?? user) };
 });
 
 /* --- подарки: управление каталогом --- */
@@ -1496,7 +1498,7 @@ app.get("/api/admin/analytics", async (request, reply) => {
   if (!auth) return;
   const days = Math.min(90, Math.max(7, Number((request.query as { days?: string })?.days ?? 14)));
   const top = store.topActiveUsers(20).map((t) => ({
-    ...t, user: store.toPublicUser(store.getUserById(t.userId) ?? { id: t.userId, username: "unknown", displayName: "Удалён", avatarColor: "#666", berries: 0, createdAt: 0, passwordHash: "", salt: "" } as StoredUser),
+    ...t, user: store.toAdminUser(store.getUserById(t.userId) ?? { id: t.userId, username: "unknown", displayName: "Удалён", avatarColor: "#666", berries: 0, createdAt: 0, passwordHash: "", salt: "" } as StoredUser),
   }));
   return { days: store.dayStats(days), top };
 });
@@ -1511,7 +1513,7 @@ app.get("/api/admin/export", async (request, reply) => {
   const auth = ownerAuth(request, reply);
   if (!auth) return;
   const format = asString((request.query as { format?: string })?.format) ?? "json";
-  const users = store.listUsers().map((u) => store.toPublicUser(u));
+  const users = store.listUsers().map((u) => store.toAdminUser(u));
   store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName, action: "data.export", meta: format });
   if (format === "csv") {
     reply.header("content-type", "text/csv; charset=utf-8");
@@ -1599,7 +1601,7 @@ app.post<{ Params: { userId: string } }>(
       action: "user.impersonate",
       meta: target.username,
     });
-    return { token, user: store.toPublicUser(target) };
+    return { token, user: store.toAdminUser(target) };
   }
 );
 

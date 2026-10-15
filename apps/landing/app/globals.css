@@ -4384,3 +4384,262 @@ table .nova-col {
   }
 }
 
+/* ---------- панель владельца: новые разделы (модерация, подарки, экономика) ---------- */
+.admin-tabs {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+@media (min-width: 780px) {
+  .admin-tabs {
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+}
+.app-notice.impersonate {
+  background: rgba(124, 92, 255, 0.16);
+  border-color: rgba(124, 92, 255, 0.45);
+  color: var(--text);
+}
+.app-notice.impersonate .btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.app-notice.impersonate b {
+  font-weight: 800;
+}
+
+.adm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.adm-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.adm-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+.adm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 130px;
+  flex: 1 1 150px;
+}
+.adm-field > span {
+  font-size: 11.5px;
+  color: var(--muted-2);
+}
+.adm-input,
+.adm-textarea {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  padding: 8px 10px;
+  width: 100%;
+  outline: none;
+}
+.adm-input:focus,
+.adm-textarea:focus {
+  border-color: var(--accent);
+}
+.adm-input.adm-inline {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 90px;
+  padding: 5px 8px;
+}
+.adm-input.adm-narrow {
+  width: 66px;
+  flex: 0 0 66px;
+  padding: 6px 7px;
+  text-align: center;
+}
+.adm-textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+.adm-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.adm-check input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+.adm-dim {
+  color: var(--muted-2);
+}
+.adm-link {
+  text-align: left;
+  cursor: pointer;
+}
+.adm-tag {
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+.adm-tag.resolved {
+  background: rgba(35, 230, 195, 0.16);
+  color: var(--accent-3);
+}
+.adm-tag.dismissed {
+  background: rgba(255, 92, 122, 0.16);
+  color: #ff7d95;
+}
+.adm-report,
+.adm-log {
+  gap: 8px;
+}
+.adm-report-text {
+  display: block;
+  font-size: 13.5px;
+  color: var(--text);
+  margin: 3px 0;
+  word-break: break-word;
+}
+.adm-gift {
+  gap: 10px;
+}
+.adm-gift-glyph {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.adm-tools {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-strong);
+}
+
+/* воронка */
+.funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.funnel-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 210px) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+.funnel-label {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.funnel-track {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.funnel-bar {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  background: var(--accent-grad);
+  border-radius: 999px;
+  transition: width 0.3s;
+}
+.funnel-val {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* удержание: столбцы по дням */
+.ret-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 96px;
+  padding-top: 4px;
+}
+.ret-col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 4px;
+  min-width: 0;
+}
+.ret-bar {
+  width: 100%;
+  max-width: 26px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  border-radius: 5px 5px 3px 3px;
+}
+.ret-day {
+  font-size: 9.5px;
+  color: var(--muted-2);
+}
+
+/* тепловая карта 7×24 */
+.heat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.heat-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 560px;
+}
+.heat-day {
+  flex: 0 0 26px;
+  font-size: 10px;
+  color: var(--muted-2);
+}
+.heat-cell {
+  flex: 1 1 0;
+  height: 15px;
+  border-radius: 3px;
+}
+.heat-hours .heat-h {
+  flex: 1 1 0;
+  font-size: 9px;
+  color: var(--muted-2);
+  text-align: center;
+  height: 12px;
+}
+
+@media (max-width: 640px) {
+  .funnel-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .funnel-val {
+    color: var(--muted);
+  }
+}
+

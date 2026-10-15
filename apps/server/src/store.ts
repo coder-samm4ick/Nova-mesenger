@@ -359,6 +359,18 @@ export function toPublicUser(user: StoredUser): User {
   };
 }
 
+/** Публичный вид для панели владельца: модерация, IP, сроки банов. */
+export function toAdminUser(user: StoredUser): User {
+  return {
+    ...toPublicUser(user),
+    mutedUntil: user.mutedUntil,
+    shadowBanned: Boolean(user.shadowBanned),
+    bannedReason: user.bannedReason,
+    bannedUntil: user.bannedUntil,
+    ip: user.ip,
+  };
+}
+
 /* -------------------------------- боты ---------------------------------- */
 
 /** Гарантирует существование встроенного бота Nova. */

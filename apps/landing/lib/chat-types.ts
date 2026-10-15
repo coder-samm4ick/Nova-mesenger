@@ -64,9 +64,49 @@ export type PromoCode = {
 export type ServerSettings = {
   registrationOpen: boolean; rateLimitPerMin: number;
   features: Record<string, boolean>;
+  /** Только для владельца: модерация и сеть. */
+  wordBlacklist?: string[];
+  linkWhitelist?: string[];
+  bannedIps?: string[];
 };
 
 export type DayStat = { date: string; newUsers: number; messages: number; activeUsers: number };
+
+/* ================= ПАНЕЛЬ ВЛАДЕЛЬЦА: расширенные данные ================= */
+
+/** Активная сессия пользователя (для блока «Безопасность»). */
+export type AdminSession = {
+  token: string;
+  createdAt: number;
+  ua: string;
+  ip: string;
+};
+
+/** Резервная копия базы. */
+export type BackupInfo = { name: string; size: number; createdAt?: number };
+
+/** Расширенная аналитика: DAU/WAU/MAU, воронка, удержание, тепловая карта. */
+export type ExtendedAnalytics = {
+  totals: {
+    users: number;
+    dau: number;
+    wau: number;
+    mau: number;
+    chats: number;
+    messages: number;
+  };
+  funnel: {
+    registered: number;
+    hasChat: number;
+    sentAny: number;
+    sent5: number;
+    premium: number;
+  };
+  retention: { date: string; users: number; returned: number }[];
+  /** 7×24 (день недели × час, UTC). */
+  heatmap: number[][];
+  days: DayStat[];
+};
 
 /** Сводка для панели владельца. */
 export type AdminStats = {
@@ -229,6 +269,7 @@ export type ServerEvent =
   | { type: "message.ack"; clientId: string; message: Message }
   | { type: "message.edited"; message: Message }
   | { type: "message.deleted"; messageId: string; chatId: string }
+  | { type: "messages.purged"; chatId: string }
   | {
       type: "message.reactions";
       chatId: string;

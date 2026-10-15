@@ -61,6 +61,14 @@ import type {
 
 import { AuthPanel } from "./AuthPanel";
 import { GiftShowcase } from "./GiftShowcase";
+import {
+  AdminAnalytics,
+  AdminEconomy,
+  AdminGifts,
+  AdminModeration,
+  AdminServer,
+  AdminUserTools,
+} from "./AdminExtra";
 
 type Connection = "connecting" | "online" | "offline";
 type CallPhase = "idle" | "outgoing" | "incoming" | "connecting" | "active";
@@ -450,10 +458,31 @@ export function ChatApp() {
   const [xQ, setXQ] = useState("");
   const [xUsers, setXUsers] = useState<User[]>([]);
 
+  // Жалоба на пользователя из его профиля
+  const [reportFor, setReportFor] = useState<string | null>(null);
+  const [reportText, setReportText] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+
+  // Промокод в настройках
+  const [promoCode, setPromoCode] = useState("");
+  const [promoBusy, setPromoBusy] = useState(false);
+
   // Панель владельца
   const [aTab, setATab] = useState<
-    "stats" | "users" | "bots" | "channels" | "groups" | "broadcast" | "system"
+    | "stats"
+    | "users"
+    | "moderation"
+    | "gifts"
+    | "economy"
+    | "bots"
+    | "channels"
+    | "groups"
+    | "broadcast"
+    | "system"
   >("stats");
+  /** Режим «войти как пользователь»: кто открыт вместо владельца. */
+  const [impersonating, setImpersonating] = useState<User | null>(null);
+  const ownerTokenRef = useRef<string | null>(null);
   const [aStats, setAStats] = useState<AdminStats | null>(null);
   const [aQ, setAQ] = useState("");
   const [aFilter, setAFilter] = useState<
@@ -1228,7 +1257,7 @@ export function ChatApp() {
         } else if (aTab === "bots") {
           const res = await api.adminUsers(current, "");
           if (alive) setABots(res.users.filter((b) => b.isBot));
-        } else {
+        } else if (aTab === "channels" || aTab === "groups") {
           const res = await api.adminChats(current, aTab === "groups" ? "group" : "channel", aQ);
           if (alive) setAChats(res.chats);
         }
@@ -1419,6 +1448,49 @@ export function ChatApp() {
   /* ------------------------------ профиль --------------------------------- */
 
   /** Открывает карточку профиля пользователя (своё — это вкладка настроек). */
+  /* --------------------- жалоба пользователя и промокод ------------------- */
+
+  async function sendReportNow(targetId: string) {
+    const current = tokenRef.current;
+    if (!current) return;
+    const reason = reportText.trim();
+    if (reason.length < 3) {
+      setAMsg({ kind: "err", text: "Опиши, что не так" });
+      return;
+    }
+    setReportBusy(true);
+    try {
+      await api.sendReport(current, "user", targetId, reason);
+      setAMsg({ kind: "ok", text: "Жалоба отправлена владельцу" });
+      setReportFor(null);
+      setReportText("");
+    } catch (err) {
+      setAMsg({
+        kind: "err",
+        text: err instanceof Error ? err.message : "Не удалось отправить жалобу",
+      });
+    } finally {
+      setReportBusy(false);
+    }
+  }
+
+  async function redeemNow() {
+    const current = tokenRef.current;
+    const code = promoCode.trim().toUpperCase();
+    if (!current || !code) return;
+    setPromoBusy(true);
+    try {
+      const res = await api.redeemPromo(current, code);
+      setBerries(res.balance);
+      setPromoCode("");
+      setAMsg({ kind: "ok", text: `Промокод принят: +${res.berries} ★` });
+    } catch (err) {
+      setAMsg({ kind: "err", text: err instanceof Error ? err.message : "Промокод не сработал" });
+    } finally {
+      setPromoBusy(false);
+    }
+  }
+
   function openProfile(user: User) {
     const current = tokenRef.current;
     if (!current) return;
@@ -1668,6 +1740,43 @@ export function ChatApp() {
     setMe(result.user);
     setBerries(result.user.berries);
     indexPeople([result.user]);
+  }
+
+  /* --- режим «войти как пользователь» (из панели владельца) --- */
+
+  function startImpersonate(nextToken: string, user: User) {
+    const ownerToken = tokenRef.current;
+    localStorage.setItem(TOKEN_KEY, nextToken);
+    ownerTokenRef.current = ownerToken;
+    setImpersonating(meRef.current);
+    setToken(nextToken);
+    tokenRef.current = nextToken;
+    setMe(user);
+    meRef.current = user;
+    setBerries(user.berries);
+    setChats([]);
+    setMessages({});
+    setActiveId(null);
+    setModal("none");
+    setTab("chats");
+  }
+
+  function stopImpersonate() {
+    const back = ownerTokenRef.current;
+    ownerTokenRef.current = null;
+    setImpersonating(null);
+    if (!back) return;
+    localStorage.setItem(TOKEN_KEY, back);
+    setToken(back);
+    tokenRef.current = back;
+    api
+      .me(back)
+      .then(({ user }) => {
+        setMe(user);
+        meRef.current = user;
+        setBerries(user.berries);
+      })
+      .catch(() => {});
   }
 
   async function logout() {
@@ -2750,6 +2859,29 @@ export function ChatApp() {
                   ))}
                 </div>
               </details>
+
+              <details className="server-settings">
+                <summary>Промокод</summary>
+                <div className="server-settings-row">
+                  <input
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value)}
+                    placeholder="NOVA2026"
+                    maxLength={32}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void redeemNow();
+                    }}
+                  />
+                  <button
+                    className="btn btn-primary"
+                    disabled={promoBusy || !promoCode.trim()}
+                    onClick={() => void redeemNow()}
+                  >
+                    Активировать
+                  </button>
+                </div>
+                <p className="auth-hint">Вводи код без учёта регистра — звёзды сразу на баланс.</p>
+              </details>
             </div>
 
             <div className="settings-card">
@@ -3090,8 +3222,11 @@ export function ChatApp() {
             <div className="admin-tabs">
               {(
                 [
-                  ["stats", "Статистика"],
+                  ["stats", "Обзор"],
                   ["users", "Люди"],
+                  ["moderation", "Модерация"],
+                  ["gifts", "Подарки"],
+                  ["economy", "Экономика"],
                   ["broadcast", "Рассылка"],
                   ["bots", "Боты"],
                   ["channels", "Каналы"],
@@ -3150,11 +3285,35 @@ export function ChatApp() {
                   <button className="btn btn-ghost admin-btn" onClick={() => setATab("system")}>
                     Управление сервером →
                   </button>
+                  <button className="btn btn-ghost admin-btn" onClick={() => setATab("moderation")}>
+                    Модерация →
+                  </button>
                   <button className="btn btn-ghost admin-btn" onClick={exportUsers}>
                     Выгрузить людей (JSON)
                   </button>
                 </div>
+                <AdminAnalytics token={token ?? ""} onOpenProfile={openProfile} />
               </>
+            )}
+
+            {aTab === "moderation" && (
+              <AdminModeration
+                token={token ?? ""}
+                notify={(kind, text) => setAMsg({ kind, text })}
+                onOpenProfile={openProfile}
+              />
+            )}
+
+            {aTab === "gifts" && (
+              <AdminGifts token={token ?? ""} notify={(kind, text) => setAMsg({ kind, text })} />
+            )}
+
+            {aTab === "economy" && (
+              <AdminEconomy
+                token={token ?? ""}
+                notify={(kind, text) => setAMsg({ kind, text })}
+                onOpenProfile={openProfile}
+              />
             )}
 
             {aTab === "users" && (
@@ -3536,6 +3695,8 @@ export function ChatApp() {
                         : "Включить режим"}
                   </button>
                 </div>
+
+                <AdminServer token={token ?? ""} notify={(kind, text) => setAMsg({ kind, text })} />
               </>
             )}
           </div>
@@ -3549,6 +3710,19 @@ export function ChatApp() {
           <span>{notice}</span>
           <button className="app-notice-x" onClick={() => setNotice(null)} aria-label="Скрыть">
             <Close width={13} height={13} />
+          </button>
+        </div>
+      )}
+
+      {/* ---------------- режим «войти как пользователь» ---------------- */}
+      {impersonating && (
+        <div className="app-notice impersonate" role="status">
+          <Shield width={16} height={16} />
+          <span>
+            Режим владельца: открыт аккаунт <b>@{me.username}</b> ({me.displayName})
+          </span>
+          <button className="btn btn-ghost" onClick={stopImpersonate}>
+            Вернуться в свой аккаунт
           </button>
         </div>
       )}
@@ -3686,6 +3860,49 @@ export function ChatApp() {
                 Передать звёзды
               </button>
             </div>
+
+            {profileUser.id !== me.id &&
+              (reportFor === profileUser.id ? (
+                <div className="adm">
+                  <textarea
+                    className="adm-textarea"
+                    rows={3}
+                    autoFocus
+                    value={reportText}
+                    onChange={(e) => setReportText(e.target.value)}
+                    placeholder="Что не так с этим пользователем?"
+                  />
+                  <div className="admin-actions-row">
+                    <button
+                      className="admin-btn btn-danger"
+                      disabled={reportBusy}
+                      onClick={() => void sendReportNow(profileUser.id)}
+                    >
+                      Отправить жалобу
+                    </button>
+                    <button
+                      className="admin-btn"
+                      onClick={() => {
+                        setReportFor(null);
+                        setReportText("");
+                      }}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setReportFor(profileUser.id);
+                    setReportText("");
+                  }}
+                >
+                  <Ban width={15} height={15} />
+                  Пожаловаться
+                </button>
+              ))}
               </>
             )}
 
@@ -3835,6 +4052,20 @@ export function ChatApp() {
                         : "Сбросить пароль"}
                     </button>
                   </div>
+                )}
+
+                {!profileUser.isBot && (
+                  <AdminUserTools
+                    token={token ?? ""}
+                    user={profileUser}
+                    notify={(kind, text) => setAMsg({ kind, text })}
+                    onChanged={(u) => {
+                      setProfileUser(u);
+                      aPatchUser(u.id, u);
+                      void refreshProfile();
+                    }}
+                    onImpersonate={startImpersonate}
+                  />
                 )}
 
                 <button
