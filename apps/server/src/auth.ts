@@ -33,18 +33,32 @@ export async function verifyPassword(
   return timingSafeEqual(actual, expected);
 }
 
-/** Сессии в памяти: токен → id пользователя. */
-const sessions = new Map<string, string>();
+/** Сессии в памяти: токен → данные (владелец, время, IP, браузер). */
+export type SessionInfo = {
+  token: string;
+  userId: string;
+  createdAt: number;
+  ua?: string;
+  ip?: string;
+};
 
-export function createSession(userId: string): string {
+const sessions = new Map<string, SessionInfo>();
+
+export function createSession(userId: string, info?: { ua?: string; ip?: string }): string {
   const token = randomBytes(24).toString("base64url");
-  sessions.set(token, userId);
+  sessions.set(token, {
+    token,
+    userId,
+    createdAt: Date.now(),
+    ua: info?.ua,
+    ip: info?.ip,
+  });
   return token;
 }
 
 export function userIdFromToken(token: string | undefined | null): string | null {
   if (!token) return null;
-  return sessions.get(token) ?? null;
+  return sessions.get(token)?.userId ?? null;
 }
 
 export function destroySession(token: string): void {
@@ -53,7 +67,14 @@ export function destroySession(token: string): void {
 
 /** Полный выход: удаляет все активные сессии пользователя. */
 export function destroyUserSessions(userId: string): void {
-  for (const [token, id] of sessions.entries()) {
-    if (id === userId) sessions.delete(token);
+  for (const [token, info] of sessions.entries()) {
+    if (info.userId === userId) sessions.delete(token);
   }
+}
+
+/** Все живые сессии пользователя (для панели владельца). */
+export function listUserSessions(userId: string): SessionInfo[] {
+  return [...sessions.values()]
+    .filter((s) => s.userId === userId)
+    .sort((a, b) => b.createdAt - a.createdAt);
 }

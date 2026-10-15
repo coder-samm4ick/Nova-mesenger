@@ -5,8 +5,15 @@
 // загружается обратно. Путь к файлу можно переопределить переменной
 // окружения NOVA_DATA_FILE.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { newId } from "./auth.js";
 import type {
@@ -184,6 +191,7 @@ function normalizeUser(raw: Partial<StoredUser>): StoredUser | null {
     /* модерация */
     mutedUntil: typeof raw.mutedUntil === "number" ? raw.mutedUntil : undefined,
     shadowBanned: Boolean(raw.shadowBanned),
+    shadowBannedAt: typeof raw.shadowBannedAt === "number" ? raw.shadowBannedAt : undefined,
     bannedReason: raw.bannedReason ?? undefined,
     bannedUntil: typeof raw.bannedUntil === "number" ? raw.bannedUntil : undefined,
     ip: raw.ip ?? undefined,
@@ -475,6 +483,7 @@ export function updateUser(
       | "lastSeenAt"
       | "mutedUntil"
       | "shadowBanned"
+      | "shadowBannedAt"
       | "bannedReason"
       | "bannedUntil"
       | "ip"
@@ -1319,4 +1328,120 @@ export function topActiveUsers(limit = 20): { userId: string; count: number }[] 
 /** Все транзакции (для экономики). */
 export function allTransactions(limit = 500): BerryTx[] {
   return [...berryTransactions].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+}
+
+/* --------------------- панель владельца: массовое и бэкап --------------------- */
+
+/** Все сообщения всех чатов (аналитика и массовые операции). */
+export function allMessages(): Message[] {
+  return [...messagesByChat.values()].flat();
+}
+
+/**
+ * Массовое удаление сообщений.
+ * Фильтры: конкретный чат, автор, «раньше времени».
+ * @returns сколько сообщений удалено.
+ */
+export function massDeleteMessages(filter: {
+  chatId?: string;
+  senderId?: string;
+  before?: number;
+}): number {
+  let removed = 0;
+  for (const [chatId, list] of messagesByChat.entries()) {
+    if (filter.chatId && filter.chatId !== chatId) continue;
+    const keep: Message[] = [];
+    for (const m of list) {
+      const hit =
+        (!filter.senderId || m.senderId === filter.senderId) &&
+        (!filter.before || m.createdAt <= filter.before);
+      if (hit) removed++;
+      else keep.push(m);
+    }
+    if (keep.length !== list.length) messagesByChat.set(chatId, keep);
+  }
+  if (removed) save();
+  return removed;
+}
+
+/** Ручной бэкап: копия db.json в data/backups. */
+export function backupNow(): { name: string; size: number } | null {
+  try {
+    save();
+    const file = dataFile();
+    if (!existsSync(file)) return null;
+    const dir = join(dirname(file), "backups");
+    mkdirSync(dir, { recursive: true });
+    const name = `db-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    writeFileSync(join(dir, name), readFileSync(file, "utf8"), "utf8");
+    const st = statSync(join(dir, name));
+    return { name, size: st.size };
+  } catch (err) {
+    console.error("Бэкап не удался:", err);
+    return null;
+  }
+}
+
+/** Список бэкапов (новые сверху, максимум 30). */
+export function listBackups(): { name: string; size: number; createdAt: number }[] {
+  try {
+    const dir = join(dirname(dataFile()), "backups");
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => {
+        const st = statSync(join(dir, f));
+        return { name: f, size: st.size, createdAt: st.mtimeMs };
+      })
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 30);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Восстановление из бэкапа: подменяет db.json и перечитывает базу
+ * в память (сессии и открытые WS остаются, данные меняются сразу).
+ */
+export function restoreBackup(name: string): boolean {
+  try {
+    const clean = basename(name);
+    if (!clean.endsWith(".json") || clean.includes("..")) return false;
+    const dir = join(dirname(dataFile()), "backups");
+    const src = join(dir, clean);
+    if (!existsSync(src)) return false;
+
+    users.clear();
+    usernames.clear();
+    phones.clear();
+    chats.clear();
+    dmKeys.clear();
+    messagesByChat.clear();
+    readCursors.clear();
+    uploadedFiles.clear();
+    berryTransactions.length = 0;
+    giftCatalog = [];
+    userGifts = [];
+    giftSerial = 0;
+    reports = [];
+    adminLogs = [];
+    promoCodes = [];
+    meta.maintenance = false;
+    settings.registrationOpen = true;
+    settings.wordBlacklist = [];
+    settings.linkWhitelist = [];
+    settings.rateLimitPerMin = 30;
+    settings.bannedIps = [];
+    settings.features = {};
+
+    mkdirSync(dirname(dataFile()), { recursive: true });
+    writeFileSync(dataFile(), readFileSync(src, "utf8"), "utf8");
+    load();
+    save();
+    return true;
+  } catch (err) {
+    console.error("Восстановление из бэкапа не удалось:", err);
+    return false;
+  }
 }

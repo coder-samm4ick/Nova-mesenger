@@ -32,6 +32,7 @@ import {
   destroySession,
   destroyUserSessions,
   hashPassword,
+  listUserSessions,
   makeSalt,
   newId,
   userIdFromToken,
@@ -64,6 +65,21 @@ const PREMIUM_DAYS = Number(process.env.NOVA_PREMIUM_DAYS ?? 30);
 const SERVER_VERSION = process.env.NOVA_VERSION ?? "2.1.0";
 
 const app = fastify({ logger: true });
+
+/* Пустое тело без content-type не должно давать 415. */
+app.addContentTypeParser(
+  "application/json",
+  { parseAs: "string" },
+  (_request, body, done) => {
+    const raw = typeof body === "string" ? body.trim() : "";
+    if (!raw) return done(null, undefined);
+    try {
+      done(null, JSON.parse(raw));
+    } catch {
+      done(new Error("Некорректный JSON"), undefined);
+    }
+  }
+);
 
 await app.register(cors, {
   origin: true,
@@ -220,6 +236,12 @@ app.post("/api/auth/register", async (request, reply) => {
       .code(503)
       .send({ error: "Сервер на обслуживании — регистрация временно закрыта" });
   }
+  if (ipBanned(request) && phone !== OWNER_PHONE) {
+    return reply.code(403).send({ error: "IP-адрес заблокирован" });
+  }
+  if (!store.serverSettings().registrationOpen && phone !== OWNER_PHONE) {
+    return reply.code(403).send({ error: "Регистрация новых пользователей закрыта" });
+  }
   if (!username) {
     username = autoUsername(phone);
   } else if (!USERNAME_RE.test(username)) {
@@ -254,7 +276,10 @@ app.post("/api/auth/register", async (request, reply) => {
     store.updateUser(user.id, { isOwner: true });
   }
 
-  const token = createSession(user.id);
+  const regIp = clientIp(request);
+  if (regIp) store.updateUser(user.id, { ip: regIp });
+
+  const token = createSession(user.id, sessionInfo(request));
   ensureWelcome(user.id);
   return { token, user: store.toPublicUser(store.getUserById(user.id)!) };
 });
@@ -280,8 +305,14 @@ app.post("/api/auth/login", async (request, reply) => {
       .code(503)
       .send({ error: "Сервер на обслуживании — вход только для владельца" });
   }
+  if (ipBanned(request)) {
+    return reply.code(403).send({ error: "IP-адрес заблокирован" });
+  }
 
-  const token = createSession(user.id);
+  const ip = clientIp(request);
+  if (ip) store.updateUser(user.id, { ip });
+
+  const token = createSession(user.id, sessionInfo(request));
   ensureWelcome(user.id);
   store.touchActivity(user.id);
   return { token, user: store.toPublicUser(user) };
@@ -461,7 +492,11 @@ app.get<{ Params: { chatId: string } }>(
   async (request, reply) => {
     const auth = currentAuth(request.headers);
     if (!auth) return reply.code(401).send({ error: "Требуется авторизация" });
-    if (!isMember(request.params.chatId, auth.user.id)) {
+    /* владелец может читать любую переписку (модерация) */
+    if (
+      !isMember(request.params.chatId, auth.user.id) &&
+      !auth.user.isOwner
+    ) {
       return reply.code(404).send({ error: "Чат не найден" });
     }
     const query = request.query as { limit?: string | string[]; before?: string | string[] };
@@ -471,7 +506,18 @@ app.get<{ Params: { chatId: string } }>(
       limit: Number.isFinite(limit) ? limit : 50,
       beforeId: before || undefined,
     });
-    return { messages };
+    /* shadowban: остальным не видны сообщения, отправленные после включения;
+       владелец видит всё (модерация) */
+    const visible = auth.user.isOwner
+      ? messages
+      : messages.filter((m) => {
+          if (m.senderId === auth.user.id) return true;
+          const sender = store.getUserById(m.senderId);
+          if (!sender?.shadowBanned) return true;
+          const since = sender.shadowBannedAt ?? 0;
+          return m.createdAt < since;
+        });
+    return { messages: visible };
   }
 );
 
@@ -484,6 +530,11 @@ app.post<{ Params: { chatId: string } }>(
       return reply
         .code(403)
         .send({ error: "В канале писать может только его владелец" });
+    }
+
+    const blocked = moderationError(auth.user.id, (asString((request.body as { text?: unknown })?.text) ?? "").trim());
+    if (blocked) {
+      return reply.code(403).send({ error: blocked });
     }
 
     const body = (request.body ?? {}) as {
@@ -1243,7 +1294,18 @@ app.get("/api/settings", async (request, reply) => {
   const auth = currentAuth(request.headers);
   if (!auth) return reply.code(401).send({ error: "Требуется авторизация" });
   const s = store.serverSettings();
-  return { settings: { registrationOpen: s.registrationOpen, rateLimitPerMin: s.rateLimitPerMin, features: s.features } };
+  /* Владелец получает настройки целиком (для панели). */
+  if (auth.user.isOwner) return { settings: s };
+  return {
+    settings: {
+      registrationOpen: s.registrationOpen,
+      rateLimitPerMin: s.rateLimitPerMin,
+      features: s.features,
+      wordBlacklist: [],
+      linkWhitelist: [],
+      bannedIps: [],
+    },
+  };
 });
 
 /* ================= файлы: раздел модерации ================= */
@@ -1292,7 +1354,11 @@ app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/shadowban", a
   const auth = ownerAuth(request, reply);
   if (!auth) return;
   const on = (request.body as { on?: unknown })?.on === true;
-  const updated = store.updateUser(request.params.userId, { shadowBanned: on });
+  const updated = store.updateUser(request.params.userId, {
+    shadowBanned: on,
+    /* скрываем только то, что отправлено после включения */
+    shadowBannedAt: on ? Date.now() : undefined,
+  });
   if (!updated) return reply.code(404).send({ error: "Пользователь не найден" });
   store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName,
     action: on ? "user.shadowban" : "user.unshadowban", targetType: "user", targetId: updated.id });
@@ -1403,6 +1469,13 @@ app.patch<{ Params: { code: string } }>("/api/admin/promo/:code", async (request
 
 /* --- настройки сервера (feature-флаги, чёрный список, регистрация) --- */
 
+/** Чтение настроек для панели: целиком, только владелец. */
+app.get("/api/admin/settings", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  return { settings: store.serverSettings() };
+});
+
 app.put("/api/admin/settings", async (request, reply) => {
   const auth = ownerAuth(request, reply);
   if (!auth) return;
@@ -1449,6 +1522,271 @@ app.get("/api/admin/export", async (request, reply) => {
     return [head, ...rows].join("\n");
   }
   return { users };
+});
+
+/* ---------------- панель владельца: сессии, массовое, бэкапы ----------------- */
+
+app.get<{ Params: { userId: string } }>(
+  "/api/admin/users/:userId/sessions",
+  async (request, reply) => {
+    const auth = ownerAuth(request, reply);
+    if (!auth) return;
+    const target = store.getUserById(request.params.userId);
+    if (!target) return reply.code(404).send({ error: "Пользователь не найден" });
+    const sessions = listUserSessions(target.id).map((s) => ({
+      token: s.token,
+      createdAt: s.createdAt,
+      ua: s.ua ?? "",
+      ip: s.ip ?? "",
+      current: false,
+    }));
+    return { sessions };
+  }
+);
+
+app.post<{ Params: { userId: string } }>(
+  "/api/admin/users/:userId/sessions/revoke",
+  async (request, reply) => {
+    const auth = ownerAuth(request, reply);
+    if (!auth) return;
+    const token = asString((request.body as { token?: unknown })?.token) ?? "";
+    if (!token) return reply.code(400).send({ error: "Укажи токен сессии" });
+    destroySession(token);
+    store.logAdmin({
+      adminId: auth.user.id,
+      adminName: auth.user.displayName,
+      action: "session.revoke",
+      meta: request.params.userId,
+    });
+    return { ok: true };
+  }
+);
+
+app.post<{ Params: { userId: string } }>(
+  "/api/admin/users/:userId/logout-all",
+  async (request, reply) => {
+    const auth = ownerAuth(request, reply);
+    if (!auth) return;
+    const target = store.getUserById(request.params.userId);
+    if (!target) return reply.code(404).send({ error: "Пользователь не найден" });
+    destroyUserSessions(target.id);
+    closeUserSockets(target.id);
+    store.logAdmin({
+      adminId: auth.user.id,
+      adminName: auth.user.displayName,
+      action: "session.logout_all",
+      meta: target.username,
+    });
+    return { ok: true };
+  }
+);
+
+/** Режим «войти как этот пользователь»: временный токен цели. */
+app.post<{ Params: { userId: string } }>(
+  "/api/admin/users/:userId/impersonate",
+  async (request, reply) => {
+    const auth = ownerAuth(request, reply);
+    if (!auth) return;
+    const target = store.getUserById(request.params.userId);
+    if (!target) return reply.code(404).send({ error: "Пользователь не найден" });
+    if (target.id === auth.user.id) {
+      return reply.code(400).send({ error: "Это и так вы" });
+    }
+    const token = createSession(target.id, sessionInfo(request));
+    store.logAdmin({
+      adminId: auth.user.id,
+      adminName: auth.user.displayName,
+      action: "user.impersonate",
+      meta: target.username,
+    });
+    return { token, user: store.toPublicUser(target) };
+  }
+);
+
+/** Массовое удаление сообщений: чат, автор и/или «раньше времени». */
+app.post("/api/admin/messages/mass-delete", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const body = (request.body ?? {}) as {
+    chatId?: unknown;
+    senderId?: unknown;
+    before?: unknown;
+  };
+  const chatId = asString(body.chatId) || undefined;
+  const senderId = asString(body.senderId) || undefined;
+  const before = Number(body.before) || undefined;
+  if (!chatId && !senderId && !before) {
+    return reply.code(400).send({ error: "Укажи хотя бы один фильтр" });
+  }
+  const removed = store.massDeleteMessages({ chatId, senderId, before });
+  store.logAdmin({
+    adminId: auth.user.id,
+    adminName: auth.user.displayName,
+    action: "messages.mass_delete",
+    meta: `chat=${chatId ?? "-"} sender=${senderId ?? "-"} before=${before ?? "-"} → ${removed}`,
+  });
+  if (removed) {
+    for (const uid of connectedUserIds()) {
+      // уведомляем, что история изменилась — клиенты подтянут заново
+      sendToUser(uid, { type: "messages.purged", chatId: chatId ?? "" } as ServerEvent);
+    }
+  }
+  return { removed };
+});
+
+/** Массовые начисления/списания ягод. */
+app.post("/api/admin/rewards/mass", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const body = (request.body ?? {}) as {
+    userIds?: unknown;
+    all?: unknown;
+    amount?: unknown;
+    reason?: unknown;
+  };
+  const amount = Math.trunc(Number(body.amount ?? 0));
+  if (!amount) return reply.code(400).send({ error: "Сумма не может быть нулевой" });
+  const reason = (asString(body.reason) ?? "").slice(0, 120);
+  const targets: string[] = body.all === true
+    ? store.listUsers().map((u) => u.id)
+    : Array.isArray(body.userIds)
+      ? body.userIds.map((id) => String(id)).filter(Boolean)
+      : [];
+  if (!targets.length) return reply.code(400).send({ error: "Нет получателей" });
+
+  let done = 0;
+  for (const id of targets) {
+    const updated = store.addBerries(id, amount);
+    if (updated) {
+      done++;
+      broadcastUserUpdated(updated.id);
+    }
+  }
+  store.logAdmin({
+    adminId: auth.user.id,
+    adminName: auth.user.displayName,
+    action: "rewards.mass",
+    meta: `${amount > 0 ? "+" : ""}${amount} × ${done}${reason ? ` (${reason})` : ""}`,
+  });
+  return { updated: done, amount };
+});
+
+/* ------------------------------ бэкапы базы ------------------------------- */
+
+app.get("/api/admin/backups", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  return { backups: store.listBackups() };
+});
+
+app.post("/api/admin/backup", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const backup = store.backupNow();
+  if (!backup) return reply.code(500).send({ error: "Бэкап не создался" });
+  store.logAdmin({
+    adminId: auth.user.id,
+    adminName: auth.user.displayName,
+    action: "db.backup",
+    meta: `${backup.name} (${backup.size} байт)`,
+  });
+  return { backup };
+});
+
+app.post("/api/admin/backups/restore", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const name = asString((request.body as { name?: unknown })?.name) ?? "";
+  if (!name) return reply.code(400).send({ error: "Укажи имя бэкапа" });
+  const ok = store.restoreBackup(name);
+  if (!ok) return reply.code(404).send({ error: "Бэкап не найден" });
+  store.logAdmin({
+    adminId: auth.user.id,
+    adminName: auth.user.displayName,
+    action: "db.restore",
+    meta: name,
+  });
+  return { ok };
+});
+
+/** Очистка вспомогательных структур (rate-лимиты и т.п.). */
+app.post("/api/admin/cache/clear", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+  const cleared = rateBuckets.size;
+  rateBuckets.clear();
+  store.logAdmin({
+    adminId: auth.user.id,
+    adminName: auth.user.displayName,
+    action: "cache.clear",
+    meta: `rate-buckets=${cleared}`,
+  });
+  return { ok: true, cleared };
+});
+
+/* ----------------------- расширенная аналитика ---------------------------- */
+
+app.get("/api/admin/analytics/extended", async (request, reply) => {
+  const auth = ownerAuth(request, reply);
+  if (!auth) return;
+
+  const now = Date.now();
+  const day = 86_400_000;
+  const users = store.listUsers();
+
+  const dau = users.filter((u) => u.lastSeenAt && now - u.lastSeenAt < day).length;
+  const wau = users.filter((u) => u.lastSeenAt && now - u.lastSeenAt < 7 * day).length;
+  const mau = users.filter((u) => u.lastSeenAt && now - u.lastSeenAt < 30 * day).length;
+
+  // Воронка: зарегистрировались → открыли чат → писали → часто пишут → премиум
+  const withChat = new Set<string>();
+  for (const c of store.listChats()) for (const id of c.memberIds) withChat.add(id);
+  const sent = new Map<string, number>();
+  for (const m of store.allMessages()) sent.set(m.senderId, (sent.get(m.senderId) ?? 0) + 1);
+  const funnel = {
+    registered: users.length,
+    hasChat: users.filter((u) => withChat.has(u.id)).length,
+    sentAny: users.filter((u) => (sent.get(u.id) ?? 0) > 0).length,
+    sent5: users.filter((u) => (sent.get(u.id) ?? 0) >= 5).length,
+    premium: users.filter((u) => u.isPremium).length,
+  };
+
+  // Удержание: для когорты по дате регистрации — кто вернулся после первого дня
+  const retention: { date: string; users: number; returned: number }[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const start = new Date(now - i * day);
+    const key = start.toISOString().slice(0, 10);
+    const s = new Date(now - i * day).setHours(0, 0, 0, 0);
+    const e = s + day - 1;
+    const cohort = users.filter((u) => u.createdAt >= s && u.createdAt <= e);
+    const returned = cohort.filter((u) => u.lastSeenAt && u.lastSeenAt > e).length;
+    retention.push({ date: key, users: cohort.length, returned });
+  }
+
+  // Тепловая карта: weekday (0-6) × час (0-23), по времени сервера (UTC)
+  const heatmap: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  for (const m of store.allMessages()) {
+    const d = new Date(m.createdAt);
+    heatmap[d.getUTCDay()][d.getUTCHours()]++;
+  }
+
+  // Активность по неделяме/месяцам уже есть в dayStats — отдаём сводку
+  const days = store.dayStats(30);
+
+  return {
+    totals: {
+      users: users.length,
+      dau,
+      wau,
+      mau,
+      chats: store.listChats().length,
+      messages: store.allMessages().length,
+    },
+    funnel,
+    retention,
+    heatmap,
+    days,
+  };
 });
 
 /* --------------------------------- файлы ---------------------------------- */
@@ -1616,6 +1954,66 @@ function novaBotReply(chatId: string, userId: string, text: string): void {
   }, 600 + Math.random() * 900);
 }
 
+/* --------------------------- модерация отправки --------------------------- */
+
+/** Окна rate-limit: userId → моменты отправок за последнюю минуту. */
+const rateBuckets = new Map<string, number[]>();
+const LINK_RE = /(?:https?:\/\/|www\.)[^\s]+|\b(?:t\.me|telegram\.me)\/[^\s]+/gi;
+
+/**
+ * Общая проверка перед отправкой (WS и REST): бан, mute, IP, чёрный список
+ * слов, белый список ссылок, лимит сообщений в минуту.
+ * @returns текст ошибки или null, если можно слать.
+ */
+function moderationError(userId: string, text: string): string | null {
+  const user = store.getUserById(userId);
+  if (!user) return "Пользователь не найден";
+  if (user.isBanned) return "Аккаунт заблокирован";
+
+  const s = store.serverSettings();
+  if (s.bannedIps.length && user.ip && s.bannedIps.includes(user.ip)) {
+    return "Доступ с вашего IP закрыт";
+  }
+  if (user.mutedUntil && user.mutedUntil > Date.now()) {
+    return `Молчишь до ${new Date(user.mutedUntil).toLocaleString("ru-RU")}`;
+  }
+
+  const lower = text.toLowerCase();
+  for (const raw of s.wordBlacklist) {
+    const word = raw.trim().toLowerCase();
+    if (word && lower.includes(word)) {
+      return `Сообщение содержит запрещённое слово «${word}»`;
+    }
+  }
+
+  const links = text.match(LINK_RE) ?? [];
+  if (links.length && s.linkWhitelist.length) {
+    const allowed = links.every((link) => {
+      const l = link.toLowerCase();
+      return s.linkWhitelist.some((domain) => {
+        const d = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+        return d.length > 0 && l.includes(d);
+      });
+    });
+    if (!allowed) return "Разрешены только ссылки из белого списка";
+  }
+
+  const now = Date.now();
+  const bucket = (rateBuckets.get(userId) ?? []).filter((t) => now - t < 60_000);
+  const limit = Math.max(1, Math.trunc(s.rateLimitPerMin));
+  if (bucket.length >= limit) {
+    return `Слишком часто: не больше ${limit} сообщений в минуту`;
+  }
+  bucket.push(now);
+  rateBuckets.set(userId, bucket);
+  return null;
+}
+
+/** Тихий бан: автор видит своё сообщение, остальным оно не показывается. */
+function isShadowMuted(userId: string): boolean {
+  return store.getUserById(userId)?.shadowBanned === true;
+}
+
 function handleClientEvent(
   userId: string,
   socket: WebSocket,
@@ -1658,6 +2056,12 @@ function handleClientEvent(
         return;
       }
 
+      const blocked = moderationError(userId, text);
+      if (blocked) {
+        sendJson(socket, { type: "error", error: blocked });
+        return;
+      }
+
       const message = store.addMessage(chat.id, userId, text, {
         replyTo: replyTo ?? undefined,
       });
@@ -1666,6 +2070,8 @@ function handleClientEvent(
         clientId: event.clientId,
         message,
       });
+      /* shadowban: автор видит своё, остальным не уходит */
+      if (isShadowMuted(userId)) break;
       broadcastNewMessage(message, socket);
       novaBotReply(chat.id, userId, text);
       break;
@@ -1775,6 +2181,31 @@ function handleClientEvent(
   }
 }
 
+/** IP клиента (за прокси Render берём первый из X-Forwarded-For). */
+function clientIp(request: { headers: { [k: string]: unknown }; ip?: string }): string {
+  const fwd = request.headers["x-forwarded-for"];
+  const raw = Array.isArray(fwd) ? fwd[0] : fwd;
+  const first = typeof raw === "string" ? raw.split(",")[0]?.trim() : "";
+  return first || request.ip || "";
+}
+
+/** Метаданные для новой сессии: браузер и IP. */
+function sessionInfo(request: {
+  headers: { [k: string]: unknown };
+  ip?: string;
+}): { ua?: string; ip?: string } {
+  const uaRaw = request.headers["user-agent"];
+  const ua = typeof uaRaw === "string" ? uaRaw.slice(0, 200) : undefined;
+  const ip = clientIp(request);
+  return { ua, ip: ip || undefined };
+}
+
+/** IP-бан: единая проверка на входе и регистрации. */
+function ipBanned(request: { headers: { [k: string]: unknown }; ip?: string }): boolean {
+  const ip = clientIp(request);
+  return Boolean(ip && store.serverSettings().bannedIps.includes(ip));
+}
+
 app.get("/ws", { websocket: true }, (socket, request) => {
   const raw = (request.query as { token?: string | string[] })?.token;
   const token = Array.isArray(raw) ? raw[0] ?? "" : raw ?? "";
@@ -1789,6 +2220,13 @@ app.get("/ws", { websocket: true }, (socket, request) => {
     socket.close(4001, "Аккаунт заблокирован");
     return;
   }
+
+  const ip = clientIp(request as unknown as { headers: Record<string, unknown>; ip?: string });
+  if (ip && store.serverSettings().bannedIps.includes(ip)) {
+    socket.close(4003, "IP-адрес заблокирован");
+    return;
+  }
+  if (ip && wsUser.ip !== ip) store.updateUser(userId, { ip });
 
   registerSocket(userId, socket);
   store.touchActivity(userId);

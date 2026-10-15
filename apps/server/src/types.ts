@@ -22,6 +22,8 @@ export type User = {
   mutedUntil?: number;
   /** Тихий бан: сообщения видны только автору, но не уходят другим. */
   shadowBanned?: boolean;
+  /** Когда включён shadowban: скрываются только сообщения после этого момента. */
+  shadowBannedAt?: number;
   /** Причина бана (показывается владельцу). */
   bannedReason?: string;
   /** Временный бан: до этого момента. Нет — перманентный. */
@@ -190,6 +192,8 @@ export type ServerEvent =
   | { type: "message.ack"; clientId: string; message: Message }
   | { type: "message.edited"; message: Message }
   | { type: "message.deleted"; messageId: string; chatId: string }
+  /** История перезаписана массовым удалением (панель владельца). */
+  | { type: "messages.purged"; chatId: string }
   | {
       type: "message.reactions";
       chatId: string;
