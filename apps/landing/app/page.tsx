@@ -13,11 +13,26 @@ import { DownloadButton } from "@/components/DownloadButton";
 import { Accordion } from "@/components/Accordion";
 import { AppMock } from "@/components/AppMock";
 import { Effects } from "@/components/Effects";
+import { Scene3D } from "@/components/Scene3D";
 import { Showcase } from "@/components/Showcase";
+
+const tickerItems = [
+  "E2E-шифрование",
+  "Файлы до 4 ГБ",
+  "Без рекламы",
+  "Звонки HD",
+  "Стикеры и гифки",
+  "Свой сервер",
+  "Открытый код",
+  "Мгновенная синхронизация",
+  "Тёмная тема",
+  "Пин-чаты",
+];
 
 export default function HomePage() {
   return (
     <>
+      <Scene3D />
       <Effects />
 
       {/* ---------------- НАВИГАЦИЯ ---------------- */}
@@ -99,6 +114,21 @@ export default function HomePage() {
           </div>
         </section>
 
+        {/* ---------------- БЕГУЩАЯ СТРОКА ---------------- */}
+        <div className="ticker reveal" aria-hidden="true">
+          <div className="ticker-track">
+            {[0, 1].map((k) => (
+              <div className="ticker-set" key={k}>
+                {tickerItems.map((t) => (
+                  <span className="ticker-item" key={t}>
+                    <i /> {t}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* ---------------- СКАЧАТЬ ---------------- */}
         <section className="section container" id="download">
           <div className="section-head">
@@ -119,7 +149,7 @@ export default function HomePage() {
               return (
                 <div
                   key={r.id}
-                  className="dl-card reveal"
+                  className="dl-card reveal tilt"
                   style={{ ["--accent-card" as string]: r.accent }}
                 >
                   <div className="dl-icon" style={{ color: r.accent }}>
@@ -175,7 +205,7 @@ export default function HomePage() {
             {features.map((f) => {
               const Icon = featureIcons[f.icon];
               return (
-                <div key={f.title} className="feat reveal">
+                <div key={f.title} className="feat reveal tilt">
                   <div className="feat-icon">
                     <Icon width={24} height={24} />
                   </div>
