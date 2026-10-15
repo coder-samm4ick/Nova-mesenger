@@ -3,7 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "Nova — десктоп-клиент для Windows, macOS и Linux",
-  "author": "Nova",
+  "homepage": "https://coder-samm4ick.github.io/Nova-mesenger/",
+  "author": {
+    "name": "Nova",
+    "email": "hello@nova.chat",
+    "url": "https://coder-samm4ick.github.io/Nova-mesenger/"
+  },
   "main": "main.js",
   "scripts": {
     "prepare-renderer": "node scripts/prepare-renderer.mjs",
@@ -19,6 +24,7 @@
   "build": {
     "appId": "chat.nova.desktop",
     "productName": "Nova",
+    "executableName": "Nova",
     "directories": {
       "output": "dist"
     },
@@ -46,6 +52,37 @@
     },
     "portable": {
       "artifactName": "nova-portable.exe"
+    },
+    "linux": {
+      "icon": "icon.png",
+      "category": "Network",
+      "synopsis": "Nova — мессенджер нового поколения",
+      "mimeTypes": [
+        "x-scheme-handler/nova"
+      ]
+    },
+    "appImage": {
+      "artifactName": "nova-${arch}.AppImage"
+    },
+    "deb": {
+      "artifactName": "nova-amd64.deb"
+    },
+    "mac": {
+      "icon": "icon.png",
+      "category": "public.app-category.social-networking",
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "artifactName": "nova-${arch}.${ext}"
     }
   }
 }

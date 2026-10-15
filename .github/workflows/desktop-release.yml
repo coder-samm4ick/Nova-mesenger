@@ -1,0 +1,97 @@
+# Сборка десктопных релизов, которые нельзя сделать на Windows-машине:
+#   macOS (dmg для Intel и Apple Silicon — нужен macOS-раннер) и
+#   Linux (AppImage + deb — нужны symlink'и, разрешённые только на Linux).
+# Запускается вручную (workflow_dispatch), артефеты заливаются в релиз v1.0.0.
+
+name: desktop-release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    name: macOS dmg (x64 + arm64)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Сборка веб-рендера (пути от корня)
+        working-directory: apps/landing
+        env:
+          NEXT_PUBLIC_DOWNLOADS_BASE: https://github.com/coder-samm4ick/Nova-mesenger/releases/download/v1.0.0
+          NEXT_PUBLIC_NOVA_API: https://nova-mesenger.onrender.com
+          NOVA_BASE_PATH: ""
+        run: npm run build
+
+      - name: Подготовка рендерера
+        working-directory: apps/desktop
+        run: node scripts/prepare-renderer.mjs
+
+      - name: Сборка dmg
+        working-directory: apps/desktop
+        env:
+          # без сертификата Apple — подпись отключаем, приложение открывается
+          # через правый клик → «Открыть»
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: node ../../node_modules/electron-builder/cli.js --mac dmg
+
+      - name: Заливка в релиз v1.0.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v1.0.0 \
+            apps/desktop/dist/nova-x64.dmg \
+            apps/desktop/dist/nova-arm64.dmg \
+            --clobber
+
+  linux:
+    name: Linux AppImage + deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Сборка веб-рендера (пути от корня)
+        working-directory: apps/landing
+        env:
+          NEXT_PUBLIC_DOWNLOADS_BASE: https://github.com/coder-samm4ick/Nova-mesenger/releases/download/v1.0.0
+          NEXT_PUBLIC_NOVA_API: https://nova-mesenger.onrender.com
+          NOVA_BASE_PATH: ""
+        run: npm run build
+
+      - name: Подготовка рендерера
+        working-directory: apps/desktop
+        run: node scripts/prepare-renderer.mjs
+
+      - name: Сборка AppImage + deb
+        working-directory: apps/desktop
+        run: node ../../node_modules/electron-builder/cli.js --linux appimage deb
+
+      - name: Заливка в релиз v1.0.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v1.0.0 \
+            apps/desktop/dist/nova-x86_64.AppImage \
+            apps/desktop/dist/nova-amd64.deb \
+            --clobber
