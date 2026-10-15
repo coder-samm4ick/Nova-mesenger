@@ -914,29 +914,6 @@ app.post<{ Params: { userId: string } }>(
 );
 
 app.post<{ Params: { userId: string } }>(
-  "/api/admin/users/:userId/ban",
-  async (request, reply) => {
-    const auth = ownerAuth(request, reply);
-    if (!auth) return;
-    const ban = (request.body as { ban?: unknown })?.ban === true;
-    const userId = request.params.userId;
-    const user = store.getUserById(userId);
-    if (!user) return reply.code(404).send({ error: "Пользователь не найден" });
-    if (user.isBot) return reply.code(400).send({ error: "Бота банить нельзя" });
-    if (user.id === auth.user.id) return reply.code(400).send({ error: "Нельзя забанить себя" });
-    if ((user.isOwner || user.phone === OWNER_PHONE) && ban) {
-      return reply.code(400).send({ error: "Нельзя забанить владельца" });
-    }
-    const updated = store.updateUser(userId, { isBanned: ban });
-    if (ban) {
-      closeUserSockets(userId);
-      destroyUserSessions(userId);
-    }
-    return { user: store.toPublicUser(updated ?? user) };
-  }
-);
-
-app.post<{ Params: { userId: string } }>(
   "/api/admin/users/:userId/verify",
   async (request, reply) => {
     const auth = ownerAuth(request, reply);
@@ -1342,6 +1319,7 @@ app.post<{ Params: { userId: string } }>("/api/admin/users/:userId/ban", async (
     isBanned: ban, bannedReason: ban ? reason : undefined, bannedUntil,
   });
   if (ban) { closeUserSockets(userId); destroyUserSessions(userId); }
+  if (updated) broadcastUserUpdated(updated.id);
   store.logAdmin({ adminId: auth.user.id, adminName: auth.user.displayName,
     action: ban ? "user.ban" : "user.unban", targetType: "user", targetId: userId, meta: reason || undefined });
   return { user: store.toPublicUser(updated ?? user) };
