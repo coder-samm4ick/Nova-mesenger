@@ -45,7 +45,7 @@ jobs:
           # без сертификата Apple — подпись отключаем, приложение открывается
           # через правый клик → «Открыть»
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: node ../../node_modules/electron-builder/cli.js --mac dmg
+        run: node ../../node_modules/electron-builder/cli.js --mac dmg --x64 --arm64
 
       - name: Заливка в релиз v1.0.0
         env:

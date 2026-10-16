@@ -72,9 +72,9 @@ export const releases: Release[] = [
   {
     id: "ios",
     name: "iOS",
-    requirement: "iOS 14+ · iPhone, iPad",
-    size: "Скоро",
-    href: "#",
+    requirement: "iPhone, iPad · Safari · «На экран Домой»",
+    size: "Веб-версия",
+    href: "/web",
     accent: "#5ac8fa",
   },
 ];

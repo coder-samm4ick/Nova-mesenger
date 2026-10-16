@@ -1,76 +1,57 @@
-# Nova Landing — deployment progress
+# Nova — прогресс (последнее обновление: 15.10.2026, вечер)
 
-## Status: LIVE + OWNER + APPS REBUILT (2026-10-14)
+## Общее
+- Сайт: https://coder-samm4ick.github.io/Nova-mesenger/ (ветка `gh-pages`, HEAD `a8ab651`)
+- Бэкенд: https://nova-mesenger.onrender.com (Render, сервис `srv-db5eif59fdbs73cjga00`)
+- Релиз v1.0.0 (id 411893621): nova-android.apk, nova-setup-x64.exe, nova-portable.exe,
+  **новое от 15.10**: nova-x86_64.AppImage (125 297 540) и nova-amd64.deb (99 352 608) — залиты CI
+- Токен GitHub (для пуша/CI): хранится в сессии агента (checkpoint), В ФАЙЛЫ НЕ ЗАПИСЫВАТЬ —
+  push protection блокирует коммиты с токеном. Пуш: git push "https://x-access-token:<token>@github.com/coder-samm4ick/Nova-mesenger.git" <branch>
+- Панель владельца (10 вкладок) принята и работает; владелец +888 222 9922 / Dimasik1982
 
-### Что сделано 2026-10-13/14
-- **Web-версия полностью работает** (гидрация через `TURBOPACK_CHUNK_BASE_PATH="/Nova-mesenger/_next/"` в `<head>`), E2E через живой UI: регистрация → чат → сообщения → WS.
-- **Скачивания** ведут на GitHub Releases v1.0.0 (env `NEXT_PUBLIC_DOWNLOADS_BASE`), склейка basePath вылечена, hrefs проверены 200.
-- **Владелец**: `OWNER_PHONE=8882229922` в коде (main `da322c9`), бэкенд пересобран на Render из ветки `main` (ветка сервиса переключена, авто-деплой), аккаунт **+888 222 9922 / Dimasik1982** (Dimasik) isOwner=True.
-- **Регистрация**: выбор региона (25 стран, вкл. 🚀 Nova +888) + валидация длины номера (`AuthPanel.tsx`), задеплоено (gh-pages `46c49ad`), проверено E2E вживую.
-- **API base** зашит в сборку: `NEXT_PUBLIC_NOVA_API=https://nova-mesenger.onrender.com` (без него сайт собирался на localhost:8081 — фикс в `46c49ad`).
-- **Приложения пересобраны под новый сервер**:
-  - десктоп: `main.js` default = `app.isPackaged ? "https://nova-mesenger.onrender.com" : localhost` (main `ccf5e07`), exe пересобраны, URL проверен в app.asar;
-  - android: `NOVA_API_URL=https://nova-mesenger.onrender.com` зашит в `window.__NOVA_API__`, APK пересобран подписан (certs/nova-android.keystore);
-  - оба заливаются в Release v1.0.0 (заменяют старые ассеты с 192.168.1.248/localhost).
-- **Сборка статики**: `next build` НЕ эмитит `out/` — синтезируется из `.next/server/app/*.html` + `.next/static` + `public` (см. Temp scripts assemble/rewrite/dedup), затем рерайт путей под `/Nova-mesenger/`.
+## Что сделано недавно (15.10)
+1. Дизайн v3 задеплоен: 3D-фон (Scene3D), эффекты (Effects.tsx), чисто чёрный фон (#000),
+   панель owner, релиз v1.0.0 перезалит — всё в проде.
+2. Добавлены цели сборки десктопа в apps/desktop/package.json:
+   - linux: appImage + deb (артефакты nova-x86_64.AppImage, nova-amd64.deb)
+   - mac: dmg x64 + arm64 (без подписи, identity: null)
+   - executableName "Nova", homepage, author.email — для Linux-сборки обязательно
+3. Создан .github/workflows/desktop-release.yml (workflow_dispatch):
+   - job linux (ubuntu-latest): AppImage+deb → заливка в релиз — **уже отработал успешно**
+   - job mac (macos-latest): dmg x64+arm64 → заливка; первый прогон собрал только arm64
+     (нужны флаги --x64 --arm64 — поправлено в workflow, перезапуск поставлен на ночь 15.10)
+4. iPhone/PWA (файлы закоммичены, НЕ задеплоено на сайт):
+   - apps/landing/public/manifest.webmanifest (start_url "./web" — относительные пути, работает и с /Nova-mesenger/, и с корнем)
+   - apps/landing/public/icon-192.png, icon-512.png, apple-touch-icon.png, icon-maskable-512.png
+     (сгенерированы headless Edge, скрипт %TEMP%\gen-icons.cjs + %TEMP%\icon-gen.html)
+   - apps/landing/app/layout.tsx: manifest, appleWebApp, icons.apple, mobile-web-app-capable
+   - apps/landing/lib/site.ts: карточка iOS → href "/web", «Веб-версия»
+   - apps/landing/app/page.tsx: для href "/web" кнопка «Открыть» вместо «Скачать»
 
-### Ветки
-- `main` (default) = исходники, HEAD `ccf5e07`.
-- `gh-pages` = сайт, HEAD `46c49ad`, Pages source pinned.
+## Осталось сделать (завтра, 16.10)
+1. [СДЕЛАНО НОЧЬЮ] Проверить CI: macOS job → в релизе должны появиться nova-x64.dmg и nova-arm64.dmg
+   (если упал — смотреть логи: api.github.com .../actions/runs, workflow desktop-release.yml)
+2. Обновить lib/site.ts карточки:
+   - macOS: href `${downloadsBase}/nova-arm64.dmg` (для Intel — x64.dmg на странице релиза), size по факту
+   - Linux: href `${downloadsBase}/nova-x86_64.AppImage`, size "119 МБ",
+     requirement "Ubuntu/Debian · AppImage · deb (см. релиз)"
+3. Собрать Pages: из apps/landing — env NEXT_PUBLIC_DOWNLOADS_BASE=.../releases/download/v1.0.0,
+   NEXT_PUBLIC_NOVA_API=https://nova-mesenger.onrender.com, NOVA_BASE_PATH=/Nova-mesenger,
+   npm.cmd run build:pages
+4. Синк out/ → C:\Users\Admin\Desktop\nova-gh: robocopy /MIR /XD downloads .git  (ОБЯЗАТЕЛЬНО исключить .git и downloads!)
+   Проверить out/.nojekyll, коммит+пуш gh-pages
+5. Коммит+пуш main (авто-деплой Render не сломает: правки только лендинг)
+6. CDP-проверка на живом: manifest отдаётся (с префиксом /Nova-mesenger/), apple-touch-icon,
+   карточки macOS/Linux/iOS (iOS — кнопка «Открыть» ведёт на /web), ошибок в консоли нет
+7. Опционально (по желанию): пересобрать exe и APK с новым чёрным дизайном v3
+   (сейчас в десктопе/APK старый лендинг) и перезалить в релиз:
+   - десктоп: apps/landing build с NOVA_BASE_PATH="" → apps/desktop scripts/build.mjs
+   - APK: cd apps/mobile && NOVA_API_URL=https://nova-mesenger.onrender.com npm.cmd run build:release
+   - заливка: %TEMP%\upload-assets.ps1 (латиница! кириллица ломает PowerShell)
 
----
-
-## Status: FIXED (2026-10-13) — root cause found and deployed
-
-### ROOT CAUSE (confirmed)
-CSS rule `.reveal{opacity:0;transform:translateY(26px)}` hid ALL page content. Content only became visible when JS (IntersectionObserver) added class `in-view`. If JS failed during React hydration, content stayed invisible on the dark background => "blank page" despite 200 + full HTML. The `@media (prefers-reduced-motion:reduce)` override only helped users with reduced-motion enabled.
-
-### FIX deployed
-- Edited `nova-gh/_next/static/chunks/0l8pur7lmc38-.css`: `.reveal{opacity:0;...}` -> `.reveal{opacity:1;transform:none}` (content visible by default, no JS dependency).
-- Commit 8b0280e "Fix: make .reveal visible by default" pushed to gh-pages. Deployment state=success. Live CSS verified: opacity:0 count=0, opacity:1 count=2.
-
-### User-reported problem
-- Was: blank/white page + CSP error even in incognito.
-- CSP error was from GitHub's 404 page (`default-src 'none'`) OR a browser extension — our JS does NOT use eval/new Function (verified 0 in all chunks), and our site sets NO CSP header/meta.
-
-### Remaining / next
-1. User to hard-refresh (Ctrl+Shift+R) and confirm content is visible.
-2. If interactive elements (nav toggle, FAQ accordion) don't work, that's a separate JS/hydration error — need user's F12 Console errors.
-3. `/web` doesn't load: client-side app needing Nova backend API (NEXT_PUBLIC_NOVA_API). Separate from landing.
-4. Download buttons 404: host the 3 binaries on GitHub Releases (up to 2 GB each), rebuild with NEXT_PUBLIC_DOWNLOADS_BASE=<releases URL>, re-push.
-
-### Live URL
-https://coder-samm4ick.github.io/Nova-mesenger/
-
-### Verified from server side
-- `/` -> 200, HTML 64877 B, title "Nova - ...", sections: download, features, compare, faq
-- CSS /_next/static/chunks/0l8pur7lmc38-.css -> 200 text/css (now 37660 B, reveal visible)
-- JS /_next/static/chunks/0umf92h1sb77c.js -> 200
-- /web/ -> 200 (479 B body — client-rendered, needs backend)
-- /favicon.svg -> 200
-- No CSP header on any response. Runtime does NOT use eval/new Function.
-- gh-pages HEAD: 8b0280e (fix), before: f27f482 (.nojekyll), c395daa (first deploy). Deployments API state=success.
-
-### What was fixed earlier
-1. Removed 216 MB binaries (nova-setup-x64.exe 106MB, nova-portable.exe 106MB, nova-android.apk 3.2MB) — GitHub rejects >25MB.
-2. Rewrote all asset paths with basePath `/Nova-mesenger/` (31 refs).
-3. Added `.nojekyll` — GitHub Pages (Jekyll) ignores `_`-prefixed dirs, so `_next/` was 404.
-4. Moved `public/*` (favicon.svg, _headers) to repo root.
-5. Made `.reveal` visible by default (the blank-page fix).
-
-### Key paths (Windows)
-- Deployment source: `C:\Users\Admin\Desktop\nova-gh\` (basePath-prefixed, .nojekyll, ready to push)
-- Clean site (root-relative, no basePath): `C:\Users\Admin\Desktop\nova-site\`
-- Next.js source: `C:\Users\Admin\Desktop\project\apps\landing\`
-- Build config: `apps/landing/next.config.mjs` (output: export, trailingSlash, basePath/assetPrefix = /Nova-mesenger)
-- IMPORTANT: `next build` with `output: "export"` does NOT generate `out/` in this Next.js 16.4.0 (Turbopack) — export is broken. The deployed site was assembled manually from `.next/server/app/*.html` + `.next/static` + `public`.
-
-### Rebuild/push commands (if needed)
-- Rewrite paths: `powershell -File C:\Users\Admin\Desktop\project\rewrite-paths.ps1`
-- Add .nojekyll + push: `powershell -File C:\Users\Admin\Desktop\project\add-nojekyll.ps1`
-- Git: `C:\Program Files\Git\bin\git.exe`, credential helper = manager (works, no PAT needed)
-- Push: `cd C:\Users\Admin\Desktop\nova-gh; git push origin gh-pages --force`
-
-### Notes
-- Next.js 16.4.0 is a modified build (see AGENTS.md in apps/landing and node_modules/next). Docs in node_modules/next/dist/docs/.
-- Background test servers (serve-site.js :8090, serve-gh.js :8091) were cancelled on restart — not needed now.
+## Полезное
+- Headless Edge CDP: "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new --remote-debugging-port=9346 --user-data-dir=%TEMP%\edge-cdp-v3
+- Локальное превью: %TEMP%\nova-preview.cjs (порт 8123, отдаёт apps/landing/out)
+- Проверочные скрипты: %TEMP%\cdp-live-v3.cjs, %TEMP%\cdp-web-black.cjs, %TEMP%\cdp-pixels.cjs
+- НЕ использовать PowerShell Get-Content/Set-Content для UTF-8 с кириллицей — только edit или Node
+- Терминал не закрывать; состояние переживает рестарт через git (main + gh-pages) и этот файл

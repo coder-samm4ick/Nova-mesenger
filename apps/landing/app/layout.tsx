@@ -31,7 +31,22 @@ export const metadata: Metadata = {
     description: site.description,
   },
   icons: {
-    icon: "/favicon.svg",
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Nova",
+  },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+    "mobile-web-app-capable": "yes",
   },
 };
 

@@ -166,6 +166,10 @@ export default function HomePage() {
                     >
                       {soon ? (
                         "Скоро"
+                      ) : r.href === "/web" ? (
+                        <>
+                          <Play width={16} height={16} /> Открыть
+                        </>
                       ) : (
                         <>
                           <Download width={16} height={16} /> Скачать
