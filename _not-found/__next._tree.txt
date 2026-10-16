@@ -1,4 +1,4 @@
 :HL["/Nova-mesenger/_next/static/chunks/24azpuzcd4hm7.css","style"]
 2:[["children",{"s":"__PAGE__","h":160}]]
 1:[["children",{"s":"/Nova-mesenger/_not-found","h":96,"c":"$Q2"}]]
-0:{"b":"PtTjnD2prQ8yXieHG0whh","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
+0:{"b":"ZuGLuTHn6y_0YQ0QhmhsT","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
