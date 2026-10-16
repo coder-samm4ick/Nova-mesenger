@@ -48,17 +48,17 @@ export const releases: Release[] = [
   {
     id: "macos",
     name: "macOS",
-    requirement: "macOS 12+ · Intel / Apple Silicon",
-    size: "Скоро",
-    href: "#",
+    requirement: "macOS 12+ · Apple Silicon · Intel (dmg)",
+    size: "122 МБ",
+    href: `${downloadsBase}/nova-arm64.dmg`,
     accent: "#b0b8c4",
   },
   {
     id: "linux",
     name: "Linux",
-    requirement: "Debian/Ubuntu · AppImage · Flatpak",
-    size: "Скоро",
-    href: "#",
+    requirement: "Ubuntu/Debian · AppImage · deb (в релизе)",
+    size: "119 МБ",
+    href: `${downloadsBase}/nova-x86_64.AppImage`,
     accent: "#ffca28",
   },
   {
